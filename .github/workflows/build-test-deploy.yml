@@ -3,10 +3,6 @@ name: build-test-deploy
 on:
   push:
     branches:
-      - develop
-      - 'release/*'
-      - 'hotfix/*'
-      - 'support/*'
       - '**'            # run build & test on every branch push
     tags:
       - 'v*'
@@ -102,6 +98,7 @@ jobs:
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@master
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
   # ---------------------------------------------------------------------------
@@ -135,12 +132,15 @@ jobs:
 
       - name: Tag docker image
         run: |
-          BRANCH_SUFFIX="${GITHUB_REF#refs/heads/*/}"
+          # For release/1.0, hotfix/1.0 etc. strip the prefix; for develop use it as-is
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          BRANCH_SUFFIX="${BRANCH#*/}"
           docker tag openmbee/flexo-mms-layer1-service:latest "openmbee/flexo-mms-layer1-service:${BRANCH_SUFFIX}-SNAPSHOT"
 
       - name: Deploy snapshot to DockerHub
         run: |
-          BRANCH_SUFFIX="${GITHUB_REF#refs/heads/*/}"
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          BRANCH_SUFFIX="${BRANCH#*/}"
           docker push "openmbee/flexo-mms-layer1-service:${BRANCH_SUFFIX}-SNAPSHOT"
 
   # ---------------------------------------------------------------------------
