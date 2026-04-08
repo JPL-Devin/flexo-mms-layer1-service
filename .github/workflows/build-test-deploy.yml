@@ -54,6 +54,9 @@ jobs:
       - name: Cat out cluster.trig
         run: cat src/test/resources/cluster.trig
 
+      - name: Restore file permissions
+        run: chmod +x gradlew
+
       - name: Build stack and run tests
         shell: /bin/bash {0}
         run: |
@@ -125,6 +128,9 @@ jobs:
       - name: Login to DockerHub
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
+      - name: Restore file permissions
+        run: chmod +x gradlew
+
       - name: Build docker image
         run: |
           cp src/main/resources/application.conf.example ./src/main/resources/application.conf
@@ -159,6 +165,9 @@ jobs:
 
       - name: Login to DockerHub
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      - name: Restore file permissions
+        run: chmod +x gradlew
 
       - name: Build docker image
         run: |
