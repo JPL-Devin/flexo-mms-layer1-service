@@ -19,8 +19,7 @@ const val SPARQL_BIND_ARTIFACT = """
     ?artifact a mms:Artifact ;
         mms:contentType ?contentType ;
         mms:body ?body ;
-        ?artifact_p ?artifact_o ;
-        . 
+        ?artifact_p ?artifact_o .
 """
 
 data class DecodedArtifact(

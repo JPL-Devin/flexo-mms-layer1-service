@@ -14,8 +14,8 @@ private val SPARQL_BGP_COMMIT: (Boolean, Boolean) -> String = { allCommits, allD
     graph mor-graph:Metadata {
         ${"optional {" iff allCommits}${"""
             ?$SPARQL_VAR_NAME_COMMIT a mms:Commit ;
-                mms:etag ?__mms_etag ;
-                ${"?commit_p ?commit_o ;" iff allData}
+                mms:etag ?__mms_etag${" ;" iff allData}
+                ${"?commit_p ?commit_o" iff allData}
                 .
         """.reindent(if(allCommits) 3 else 2)}
         ${"}" iff allCommits}
@@ -23,8 +23,7 @@ private val SPARQL_BGP_COMMIT: (Boolean, Boolean) -> String = { allCommits, allD
         ${"""
             optional {
                 ?thing mms:commit ?$SPARQL_VAR_NAME_COMMIT ;
-                    ?thing_p ?thing_o ;
-                    .
+                    ?thing_p ?thing_o .
             }
         """.reindent(2) iff allData}
     }
@@ -39,9 +38,7 @@ private val SPARQL_CONSTRUCT_COMMIT: (Boolean, Boolean) -> String = { allCommits
     construct {
         ?$SPARQL_VAR_NAME_COMMIT a mms:Commit ;
             mms:etag ?__mms_etag ;
-            ?commit_p ?commit_o ;
-            .
-        
+            ?commit_p ?commit_o .
         ?thing ?thing_p ?thing_o .
         
         ${generateReadContextBgp(Permission.READ_COMMIT).reindent(2)}

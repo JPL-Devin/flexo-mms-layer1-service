@@ -17,8 +17,8 @@ private val SPARQL_BGP_COLLECTION: (Boolean, Boolean) -> String = { allCollectio
         ${"optional {" iff allCollections}${"""
             ?$SPARQL_VAR_NAME_COLLECTION a mms:Collection ;
                 mms:etag ?__mms_etag ;
-                mms:org ?$SPARQL_VAR_NAME_ORG ;
-                ${"?collection_p ?collection_o ;" iff allData}
+                mms:org ?$SPARQL_VAR_NAME_ORG${" ;" iff allData}
+                ${"?collection_p ?collection_o" iff allData}
                 .
         """.reindent(if(allCollections) 3 else 2)}
         ${"}" iff allCollections}
@@ -35,8 +35,7 @@ private val SPARQL_CONSTRUCT_COLLECTION: (Boolean, Boolean) -> String = { allCol
     construct {
         ?$SPARQL_VAR_NAME_COLLECTION a mms:Collection ;
             mms:etag ?__mms_etag ;
-            ?collection_p ?collection_o ;
-            .
+            ?collection_p ?collection_o .
         ${generateReadContextBgp(Permission.READ_COLLECTION).reindent(2)}
     } where {
         ${SPARQL_BGP_COLLECTION(allCollections, allData).reindent(2)}

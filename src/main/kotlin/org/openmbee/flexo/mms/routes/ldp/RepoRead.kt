@@ -16,8 +16,8 @@ private val SPARQL_BGP_REPO: (Boolean, Boolean) -> String = { allRepos, allData 
         ${"optional {" iff allRepos}${"""
             ?$SPARQL_VAR_NAME_REPO a mms:Repo ;
                 mms:etag ?__mms_etag ;
-                mms:org ?$SPARQL_VAR_NAME_ORG ;
-                ${"?repo_p ?repo_o ;" iff allData}
+                mms:org ?$SPARQL_VAR_NAME_ORG${" ;" iff allData}
+                ${"?repo_p ?repo_o" iff allData}
                 .                
         """.reindent(if(allRepos) 3 else 2)}
         ${"}" iff allRepos}
@@ -34,8 +34,7 @@ private val SPARQL_CONSTRUCT_REPO: (Boolean, Boolean) -> String = { allRepos, al
     construct {
         ?$SPARQL_VAR_NAME_REPO a mms:Repo ;
             mms:etag ?__mms_etag ;
-            ?repo_p ?repo_o ;
-            .
+            ?repo_p ?repo_o .
         ${generateReadContextBgp(Permission.READ_REPO).reindent(2)}
     } where {
         ${SPARQL_BGP_REPO(allRepos, allData).reindent(2)}

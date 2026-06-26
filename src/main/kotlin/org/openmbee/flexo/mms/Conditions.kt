@@ -468,8 +468,7 @@ class ConditionsGroup(var conditions: List<Condition>) {
            
                     graph mor-graph:Metadata {         
                         ?srcRef a ?srcRefClass ;
-                            mms:commit ?srcCommit ;
-                            .
+                            mms:commit ?srcCommit .
                     }
                 """
             }
@@ -488,8 +487,7 @@ class ConditionsGroup(var conditions: List<Condition>) {
            
                     graph mor-graph:Metadata {         
                         ?dstRef a ?dstRefClass ;
-                            mms:commit ?dstCommit ;
-                            .
+                            mms:commit ?dstCommit .
                     }
                 """
             }

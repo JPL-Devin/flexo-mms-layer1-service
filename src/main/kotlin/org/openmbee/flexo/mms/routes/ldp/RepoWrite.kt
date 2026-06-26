@@ -216,14 +216,10 @@ suspend fun <TResponseContext: LdpMutateResponse> LdpDcLayer1Context<TResponseCo
                             mms:message ?_commitMessage ;
                             mms:data morc-data: ;
                             mms:etag ?_commitEtag ;
-                            mms:id "$transactionId" ;
-                            .
-                
+                            mms:id "$transactionId" .
                         # root commit data
                         morc-data: a mms:Load ;
-                            mms:body ""^^mms-datatype:sparql ;
-                            .
-
+                            mms:body ""^^mms-datatype:sparql .
                         # default branch
                         morb: a mms:Branch ;
                             mms:id ?_branchId ;
@@ -232,26 +228,19 @@ suspend fun <TResponseContext: LdpMutateResponse> LdpDcLayer1Context<TResponseCo
                             mms:snapshot ?_staging ;
                             dct:title "Master"@en ;
                             mms:createdBy mu: ;
-                            mms:created ?_now ;
-                            .
-                            
+                            mms:created ?_now .
                         # model snapshot
                         mor-lock:Commit.$transactionId a mms:Lock ;
                             mms:commit morc: ;
                             mms:snapshot ?_model ;
                             mms:created ?_now ;
-                            mms:createBy mu: ;
-                            .
-                        
+                            mms:createBy mu: .
                         # initial model graph
                         ?_model a mms:Model ;
-                            mms:graph ?_modelGraph ;
-                            .
-                        
+                            mms:graph ?_modelGraph .
                         # initial staging graph
                         ?_staging a mms:Staging ;
-                            mms:graph ?_stagingGraph ;
-                            .
+                            mms:graph ?_stagingGraph .
                     """)
                 }
 

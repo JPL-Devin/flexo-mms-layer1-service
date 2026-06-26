@@ -41,9 +41,7 @@ private fun SPARQL_INSERT_TRANSACTION(customProperties: String?=null, subTxnId: 
                 mms:permit ?_requiredPermission ;
                 mms:appliedPolicy ?__mms_policy ;
                 # mms:requestBody ?_requestBody ;
-                mms:requestBodyContentType ?_requestBodyContentType ;
-                ${pp(customProperties?: "", 4)}
-                .
+                mms:requestBodyContentType ?_requestBodyContentType${if(!customProperties.isNullOrBlank()) " ;\n                ${pp(customProperties, 4)}" else ""} .
         }
     """.trimIndent()
 }
@@ -208,8 +206,8 @@ open class WhereBuilder(
         return raw("""
             # match a successful transaction and its details
             graph m-graph:Transactions {
-                mt:${subTxnId?: ""} ?mt_p ?mt_o ;
-                    ${"mms:appliedPolicy ?__mms_policy ;" iff !noAccessControl}
+                mt:${subTxnId?: ""} ?mt_p ?mt_o${" ;" iff !noAccessControl}
+                    ${"mms:appliedPolicy ?__mms_policy" iff !noAccessControl}
                     .
                 
                 # a policy might have been created during this transaction
@@ -282,8 +280,7 @@ class TxnBuilder(
                     $policyCurie a mms:Policy ;
                         mms:subject mu: ;
                         mms:scope ${scope.id}: ;
-                        mms:role ${roles.joinToString(",") { "mms-object:Role.${it.id}" }}  ;
-                        .
+                        mms:role ${roles.joinToString(",") { "mms-object:Role.${it.id}" }}  .
                 """)
             }
         }
@@ -316,7 +313,10 @@ class InsertBuilder(
         if(null != layer1.branchId) properties["mms:branch"] = "morb:"
         if(null != layer1.scratchId) properties["mms:scratch"] = "mors:"
 
-        val propertiesSparql = properties.entries.fold("") { out, (pred, obj) -> "$out$pred $obj ;\n" }
+        val propertiesSparql = properties.entries.toList().let { entries ->
+            entries.dropLast(1).joinToString("") { (pred, obj) -> "$pred $obj ;\n" } +
+                entries.last().let { (pred, obj) -> "$pred $obj" }
+        }
 
         raw(SPARQL_INSERT_TRANSACTION(propertiesSparql, subTxnId))
 
