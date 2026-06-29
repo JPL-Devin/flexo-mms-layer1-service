@@ -24,6 +24,9 @@ suspend fun GspLayer1Context<GspMutateResponse>.loadModel() {
         branch()
     }
 
+    // optional commit message (forwarded by flexo-sysmlv2 from the SysML Commit description)
+    commitMessage = call.request.queryParameters["message"]
+
     // prep conditions
     val localConditions = DEFAULT_UPDATE_CONDITIONS.append {
         // assert HTTP preconditions
