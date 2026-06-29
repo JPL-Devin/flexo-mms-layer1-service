@@ -9,6 +9,26 @@ import org.openmbee.flexo.mms.server.LdpGetResponse
 import org.openmbee.flexo.mms.server.LdpHeadResponse
 import org.openmbee.flexo.mms.server.LdpReadResponse
 
+// GraphDB drops wildcard (?branch_p ?branch_o) bindings from list-all CONSTRUCT queries
+// when joined with the access-control BGP. Bind branch metadata explicitly for that case.
+private val SPARQL_BGP_BRANCH_LIST_PROPERTIES = """
+    optional { ?$SPARQL_VAR_NAME_BRANCH mms:commit ?__branch_commit . }
+    optional { ?$SPARQL_VAR_NAME_BRANCH mms:created ?__branch_created . }
+    optional { ?$SPARQL_VAR_NAME_BRANCH dct:title ?__branch_title . }
+    optional { ?$SPARQL_VAR_NAME_BRANCH mms:id ?__branch_id . }
+    optional { ?$SPARQL_VAR_NAME_BRANCH mms:snapshot ?__branch_snapshot . }
+    optional { ?$SPARQL_VAR_NAME_BRANCH mms:createdBy ?__branch_createdBy . }
+"""
+
+private val SPARQL_CONSTRUCT_BRANCH_LIST_PROPERTIES = """
+    mms:commit ?__branch_commit ;
+    mms:created ?__branch_created ;
+    dct:title ?__branch_title ;
+    mms:id ?__branch_id ;
+    mms:snapshot ?__branch_snapshot ;
+    mms:createdBy ?__branch_createdBy ;
+"""
+
 // reusable basic graph pattern for matching branch(es)
 private val SPARQL_BGP_BRANCH: (Boolean, Boolean) -> String = { allBranches, allData -> """
     graph mor-graph:Metadata {
@@ -20,11 +40,7 @@ private val SPARQL_BGP_BRANCH: (Boolean, Boolean) -> String = { allBranches, all
         """.reindent(if(allBranches) 3 else 2)}
         ${"}" iff allBranches}
 
-        ${"""
-            optional {
-                ?$SPARQL_VAR_NAME_BRANCH ?branch_p ?branch_o .
-            }
-        """.reindent(2) iff (allData && allBranches)}
+        ${SPARQL_BGP_BRANCH_LIST_PROPERTIES.reindent(2) iff (allData && allBranches)}
 
         ${"""
             optional {
@@ -45,7 +61,8 @@ private val SPARQL_CONSTRUCT_BRANCH: (Boolean, Boolean) -> String = { allBranche
     construct {
         ?$SPARQL_VAR_NAME_BRANCH a mms:Branch ;
             mms:etag ?__mms_etag ;
-            ?branch_p ?branch_o ;
+            ${"?branch_p ?branch_o ;" iff (allData && !allBranches)}
+            ${SPARQL_CONSTRUCT_BRANCH_LIST_PROPERTIES iff (allData && allBranches)}
             .
         
         ?thing ?thing_p ?thing_o .
