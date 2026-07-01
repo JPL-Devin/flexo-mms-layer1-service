@@ -234,7 +234,7 @@ suspend fun <TResponseContext: LdpMutateResponse> LdpDcLayer1Context<TResponseCo
                             mms:commit morc: ;
                             mms:snapshot ?_model ;
                             mms:created ?_now ;
-                            mms:createBy mu: .
+                            mms:createdBy mu: .
                         # initial model graph
                         ?_model a mms:Model ;
                             mms:graph ?_modelGraph .
