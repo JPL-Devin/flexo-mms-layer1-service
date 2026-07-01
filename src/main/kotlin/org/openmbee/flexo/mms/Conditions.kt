@@ -477,7 +477,7 @@ class ConditionsGroup(var conditions: List<Condition>) {
 
     fun appendDstRef(): ConditionsGroup {
         return append {
-            require("validSourceRef") {
+            require("validDstRef") {
                 handler = { prefixes -> "Invalid destination ref" to HttpStatusCode.BadRequest }
 
                 """
