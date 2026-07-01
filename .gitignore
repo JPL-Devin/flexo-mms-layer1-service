@@ -87,3 +87,5 @@ results/*
 *.test.trig
 *.test.rw
 .kotlin
+# IDE build output
+bin/

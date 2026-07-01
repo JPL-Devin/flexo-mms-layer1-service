@@ -3,6 +3,7 @@ package org.openmbee.flexo.mms.routes.sparql
 import io.ktor.http.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.apache.jena.rdf.model.Property
@@ -20,6 +21,8 @@ fun Route.commitModel() {
             repo()
             branch()
         }
+        // optional commit message (forwarded by flexo-sysmlv2 from the SysML Commit description)
+        commitMessage = call.request.queryParameters["message"]
         // parse query
         val sparqlUpdateAst = try {
             UpdateFactory.create(requestContext.update)
