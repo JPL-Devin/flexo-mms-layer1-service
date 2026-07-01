@@ -15,8 +15,8 @@ private val SPARQL_BGP_LOCK: (Boolean, Boolean) -> String = { allLocks, allData 
     graph mor-graph:Metadata {
         ${"optional {" iff allLocks}${"""
             ?$SPARQL_VAR_NAME_LOCK a mms:Lock ;
-                mms:etag ?__mms_etag ;
-                ${"?lock_p ?lock_o ;" iff allData}
+                mms:etag ?__mms_etag${" ;" iff allData}
+                ${"?lock_p ?lock_o" iff allData}
                 .
         """.reindent(if(allLocks) 3 else 2)}
         ${"}" iff allLocks}
@@ -24,8 +24,7 @@ private val SPARQL_BGP_LOCK: (Boolean, Boolean) -> String = { allLocks, allData 
         ${"""
             optional {
                 ?thing mms:lock ?$SPARQL_VAR_NAME_LOCK ;
-                    ?thing_p ?thing_o ;
-                    .
+                    ?thing_p ?thing_o .
             }
         """.reindent(2) iff allData}
     }
@@ -39,9 +38,7 @@ private val SPARQL_BGP_LOCK: (Boolean, Boolean) -> String = { allLocks, allData 
 private val SPARQL_CONSTRUCT_LOCK: (Boolean, Boolean) -> String = { allLocks, allData ->  """
     construct {
         ?$SPARQL_VAR_NAME_LOCK ?lock_p ?lock_o ;
-            mms:etag ?__mms_etag ;
-            .
-        
+            mms:etag ?__mms_etag .
         ?thing ?thing_p ?thing_o .
 
         ?lockPolicy ?lockPolicy_p ?lockPolicy_o .

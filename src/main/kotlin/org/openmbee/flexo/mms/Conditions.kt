@@ -468,8 +468,7 @@ class ConditionsGroup(var conditions: List<Condition>) {
            
                     graph mor-graph:Metadata {         
                         ?srcRef a ?srcRefClass ;
-                            mms:commit ?srcCommit ;
-                            .
+                            mms:commit ?srcCommit .
                     }
                 """
             }
@@ -478,7 +477,7 @@ class ConditionsGroup(var conditions: List<Condition>) {
 
     fun appendDstRef(): ConditionsGroup {
         return append {
-            require("validSourceRef") {
+            require("validDstRef") {
                 handler = { prefixes -> "Invalid destination ref" to HttpStatusCode.BadRequest }
 
                 """
@@ -488,8 +487,7 @@ class ConditionsGroup(var conditions: List<Condition>) {
            
                     graph mor-graph:Metadata {         
                         ?dstRef a ?dstRefClass ;
-                            mms:commit ?dstCommit ;
-                            .
+                            mms:commit ?dstCommit .
                     }
                 """
             }

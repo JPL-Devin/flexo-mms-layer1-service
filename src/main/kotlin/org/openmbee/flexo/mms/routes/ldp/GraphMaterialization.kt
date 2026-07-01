@@ -74,8 +74,7 @@ suspend fun AnyLayer1Context.materializeModelGraph(commitIri: String, targetGrap
                 mt:sequence
                     mms-txn:originCommit ?originCommit ;
                     mms-txn:originSnapshot ?originSnapshot ;
-                    mms-txn:originGraph ?originGraph ;
-                    .
+                    mms-txn:originGraph ?originGraph .
             }
         }
         where {
@@ -135,8 +134,7 @@ suspend fun AnyLayer1Context.materializeModelGraph(commitIri: String, targetGrap
                 mt:sequence
                     mms-txn:originCommit ?originCommit ;
                     mms-txn:originSnapshot ?originSnapshot ;
-                    mms-txn:originGraph ?originGraph ;
-                    .
+                    mms-txn:originGraph ?originGraph .
             }
         
             graph mor-graph:Metadata {
@@ -215,12 +213,9 @@ suspend fun AnyLayer1Context.materializeModelGraph(commitIri: String, targetGrap
             graph mor-graph:Metadata {
                 mor-lock:Commit.${transactionId} a mms:Lock ;
                     mms:commit ?_commitIri ;
-                    mms:snapshot ?_mdlSnapshot ;
-                    .
-
+                    mms:snapshot ?_mdlSnapshot .
                 ?_mdlSnapshot a mms:Model ;
-                    mms:graph ?_targetGraph ;
-                    .
+                    mms:graph ?_targetGraph .
             }
         }
         """

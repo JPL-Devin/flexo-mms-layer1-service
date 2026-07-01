@@ -557,8 +557,7 @@ class Layer1Context<TRequestContext: GenericRequest, out TResponseContext: Gener
                
                         graph mor-graph:Metadata {         
                             ?_refSource a ?__mms_refSourceClass ;
-                                mms:commit ?__mms_commitSource ;
-                                .
+                                mms:commit ?__mms_commitSource .
                         }
                     """ else ""} 
                     graph mor-graph:Metadata {

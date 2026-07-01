@@ -155,8 +155,7 @@ fun permittedActionSparqlBgp(
             ?__mms_policy a mms:Policy ;
                 mms:scope ?__mms_scope ;
                 mms:role ?__mms_role ;
-                ?__mms_policy_p ?__mms_policy_o ;
-                .
+                ?__mms_policy_p ?__mms_policy_o .
         }
 
         # deduce `?__mms_authMethod`
@@ -173,9 +172,7 @@ fun permittedActionSparqlBgp(
             # user belongs to some group
             graph m-graph:AccessControl.Agents {
                 ?__mms_group a mms:Group ;
-                    mms:id ?__mms_groupId ;
-                    .
-        
+                    mms:id ?__mms_groupId .
                 values ?__mms_groupId {
                     # @values groupId                
                 }
@@ -206,12 +203,9 @@ fun permittedActionSparqlBgp(
             ?__mms_scopeType rdfs:subClassOf*/mms:implies*/^rdfs:subClassOf* mms:${scope.type} .
 
             ?__mms_role a mms:Role ;
-                mms:permits ?__mms_directRolePermissions ;
-                .
-            
+                mms:permits ?__mms_directRolePermissions .
             ?__mms_directRolePermissions a mms:Permission ;
-                mms:implies* mms-object:Permission.${permission.id} ;
-                .
+                mms:implies* mms-object:Permission.${permission.id} .
         }
     """
 }
@@ -222,9 +216,7 @@ fun generateReadContextBgp(permission: Permission, id: String?=null): String {
         <${MMS_URNS.SUBJECT.context}${id?.let { ":$it" }?: ""}> a mms:Context ;
             mms:etag ?__mms_etag, ?elementEtag ;
             mms:appliedPolicy ?__mms_policy ;
-            mms:permit mms-object:Permission.${permission.id} ;
-            .
-
+            mms:permit mms-object:Permission.${permission.id} .
         # details the policy that was applied
         #?__mms_policy ?__mms_policy_p ?__mms_policy_o .
     """

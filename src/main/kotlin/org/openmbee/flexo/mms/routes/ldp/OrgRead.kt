@@ -14,8 +14,8 @@ private val SPARQL_BGP_ORG: (Boolean, Boolean) -> String = { allOrgs, allData ->
     graph m-graph:Cluster {
         ${"optional {" iff allOrgs}${"""
             ?$SPARQL_VAR_NAME_ORG a mms:Org ;
-                mms:etag ?__mms_etag ;
-                ${"?org_p ?org_o ;" iff allData}
+                mms:etag ?__mms_etag${" ;" iff allData}
+                ${"?org_p ?org_o" iff allData}
                 .
         """.reindent(if(allOrgs) 3 else 2)}
         ${"}" iff allOrgs}
@@ -29,8 +29,7 @@ private val SPARQL_BGP_ORG: (Boolean, Boolean) -> String = { allOrgs, allData ->
 private val SPARQL_CONSTRUCT_ORG: (Boolean, Boolean) -> String = { allOrgs, allData ->  """
     construct {
         ?$SPARQL_VAR_NAME_ORG ?org_p ?org_o ;
-            mms:etag ?__mms_etag ;
-            .        
+            mms:etag ?__mms_etag .
         ${generateReadContextBgp(Permission.READ_ORG).reindent(2)}
     } where {
         ${SPARQL_BGP_ORG(allOrgs, allData).reindent(2)}
