@@ -60,4 +60,11 @@ jwt {
     realm = ${?JWT_REALM}
     secret = "test1234"
     secret = ${?JWT_SECRET}
+
+    # optional JWKS endpoint for asymmetric (RS256) token verification, e.g. the
+    # sso-auth-service's /.well-known/jwks.json. When set, RS256 tokens bearing a key id
+    # are verified against it; HS256 tokens continue to verify against `secret`, allowing
+    # both to coexist during migration. Unset (default) preserves HMAC-only behavior.
+    # jwksUrl = "http://sso-auth-service:3000/sso/.well-known/jwks.json"
+    jwksUrl = ${?JWT_JWKS_URL}
 }
