@@ -9,18 +9,38 @@ import org.openmbee.flexo.mms.server.LdpGetResponse
 import org.openmbee.flexo.mms.server.LdpHeadResponse
 import org.openmbee.flexo.mms.server.LdpReadResponse
 
+// Same GraphDB optimizer issue as BranchRead — explicit bindings for list-all lock queries.
+private val SPARQL_BGP_LOCK_LIST_PROPERTIES = """
+    optional { ?$SPARQL_VAR_NAME_LOCK mms:commit ?__lock_commit . }
+    optional { ?$SPARQL_VAR_NAME_LOCK mms:created ?__lock_created . }
+    optional { ?$SPARQL_VAR_NAME_LOCK dct:title ?__lock_title . }
+    optional { ?$SPARQL_VAR_NAME_LOCK mms:id ?__lock_id . }
+    optional { ?$SPARQL_VAR_NAME_LOCK mms:snapshot ?__lock_snapshot . }
+    optional { ?$SPARQL_VAR_NAME_LOCK mms:createdBy ?__lock_createdBy . }
+"""
+
+private val SPARQL_CONSTRUCT_LOCK_LIST_PROPERTIES = """
+    mms:commit ?__lock_commit ;
+    mms:created ?__lock_created ;
+    dct:title ?__lock_title ;
+    mms:id ?__lock_id ;
+    mms:snapshot ?__lock_snapshot ;
+    mms:createdBy ?__lock_createdBy
+"""
 
 // reusable basic graph pattern for matching lock(s)
 private val SPARQL_BGP_LOCK: (Boolean, Boolean) -> String = { allLocks, allData -> """
     graph mor-graph:Metadata {
         ${"optional {" iff allLocks}${"""
             ?$SPARQL_VAR_NAME_LOCK a mms:Lock ;
-                mms:etag ?__mms_etag${" ;" iff allData}
-                ${"?lock_p ?lock_o" iff allData}
+                mms:etag ?__mms_etag${" ;" iff (allData && !allLocks)}
+                ${"?lock_p ?lock_o" iff (allData && !allLocks)}
                 .
         """.reindent(if(allLocks) 3 else 2)}
         ${"}" iff allLocks}
-        
+
+        ${SPARQL_BGP_LOCK_LIST_PROPERTIES.reindent(2) iff (allData && allLocks)}
+
         ${"""
             optional {
                 ?thing mms:lock ?$SPARQL_VAR_NAME_LOCK ;
@@ -37,8 +57,12 @@ private val SPARQL_BGP_LOCK: (Boolean, Boolean) -> String = { allLocks, allData 
 // construct graph of all relevant lock metadata
 private val SPARQL_CONSTRUCT_LOCK: (Boolean, Boolean) -> String = { allLocks, allData ->  """
     construct {
-        ?$SPARQL_VAR_NAME_LOCK ?lock_p ?lock_o ;
-            mms:etag ?__mms_etag .
+        ?$SPARQL_VAR_NAME_LOCK a mms:Lock ;
+            mms:etag ?__mms_etag${" ;" iff allData}
+            ${"?lock_p ?lock_o" iff (allData && !allLocks)}
+            ${SPARQL_CONSTRUCT_LOCK_LIST_PROPERTIES iff (allData && allLocks)}
+            .
+
         ?thing ?thing_p ?thing_o .
 
         ?lockPolicy ?lockPolicy_p ?lockPolicy_o .
