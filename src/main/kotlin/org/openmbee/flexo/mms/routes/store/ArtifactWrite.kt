@@ -73,8 +73,7 @@ suspend fun<TRequestContext: GenericRequest> Layer1Context<TRequestContext, Stor
                         mms:created ?_now ;
                         mms:createdBy mu: ;
                         mms:contentType ${escapeLiteral(requestBodyContentType)} ;
-                        $storageFragment ; 
-                        .
+                        $storageFragment .
                 """)
             }
         }

@@ -85,8 +85,7 @@ suspend fun <TResponseContext: LdpMutateResponse> LdpDcLayer1Context<TResponseCo
                 $autoPolicyCurie a mms:Policy ;
                     mms:subject mu: ;
                     mms:scope morl: ;
-                    mms:role mms-object:Role.AdminLock ;
-                    .
+                    mms:role mms-object:Role.AdminLock .
             }
         }
     """

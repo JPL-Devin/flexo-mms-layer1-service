@@ -34,8 +34,8 @@ private val SPARQL_BGP_BRANCH: (Boolean, Boolean) -> String = { allBranches, all
     graph mor-graph:Metadata {
         ${"optional {" iff allBranches}${"""
             ?$SPARQL_VAR_NAME_BRANCH a mms:Branch ;
-                mms:etag ?__mms_etag ;
-                ${"?branch_p ?branch_o ;" iff (allData && !allBranches)}
+                mms:etag ?__mms_etag${" ;" iff (allData && !allBranches)}
+                ${"?branch_p ?branch_o" iff (allData && !allBranches)}
                 .
         """.reindent(if(allBranches) 3 else 2)}
         ${"}" iff allBranches}
@@ -45,8 +45,7 @@ private val SPARQL_BGP_BRANCH: (Boolean, Boolean) -> String = { allBranches, all
         ${"""
             optional {
                 ?thing mms:branch ?$SPARQL_VAR_NAME_BRANCH ;
-                    ?thing_p ?thing_o ;
-                    .
+                    ?thing_p ?thing_o .
             }
         """.reindent(2) iff allData}
     }
@@ -64,7 +63,7 @@ private val SPARQL_CONSTRUCT_BRANCH: (Boolean, Boolean) -> String = { allBranche
             ${"?branch_p ?branch_o ;" iff (allData && !allBranches)}
             ${SPARQL_CONSTRUCT_BRANCH_LIST_PROPERTIES iff (allData && allBranches)}
             .
-        
+
         ?thing ?thing_p ?thing_o .
         
         ${generateReadContextBgp(Permission.READ_BRANCH).reindent(2)}

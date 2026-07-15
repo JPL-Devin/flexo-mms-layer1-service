@@ -100,8 +100,7 @@ suspend fun <TResponseContext: LdpMutateResponse> LdpDcLayer1Context<TResponseCo
                       mms:snapshot ?_stgSnapshot .
                       
                 ?_stgSnapshot a mms:Staging ;
-                    mms:graph ?_stgGraph ;
-                    .
+                    mms:graph ?_stgGraph .
             }
             
             graph m-graph:Transactions {
@@ -112,8 +111,7 @@ suspend fun <TResponseContext: LdpMutateResponse> LdpDcLayer1Context<TResponseCo
                 $autoPolicyCurie a mms:Policy ;
                     mms:subject mu: ;
                     mms:scope morb: ;
-                    mms:role mms-object:Role.AdminBranch ;
-                    .
+                    mms:role mms-object:Role.AdminBranch .
             }
         }
     """

@@ -236,8 +236,7 @@ fun AnyLayer1Context.genCommitUpdate(delete: String="", insert: String="", where
                     morb:
                         # replace branch pointer and etag
                         mms:commit ?baseCommit ;
-                        mms:etag ?branchEtag ;
-                        .
+                        mms:etag ?branchEtag .
                 }
                 $delete
             """)
@@ -261,16 +260,12 @@ fun AnyLayer1Context.genCommitUpdate(delete: String="", insert: String="", where
                         mms:data morc-data: ;
                         mms:createdBy mu: ;
                         mms:id ?_txnId ;
-                        mms:etag ?_txnId ;
-                        .
-            
+                        mms:etag ?_txnId .
                     # commit data
                     morc-data: a mms:Update ;
                         mms:patch ?_patchString ;
                         mms:insGraph ?_insGraph ;
-                        mms:delGraph ?_delGraph ;
-                        .
-            
+                        mms:delGraph ?_delGraph .
                     # update branch pointer and etag
                     morb: mms:commit morc: ;
                           mms:etag ?_txnId .
@@ -323,8 +318,7 @@ fun AnyLayer1Context.genDiffUpdate(diffTriples: String="", conditions: Condition
                         mms:srcCommit ?srcCommit ;
                         mms:dstCommit ?dstCommit ;
                         mms:insGraph ?insGraph ;
-                        mms:delGraph ?delGraph ;
-                        .
+                        mms:delGraph ?delGraph .
                 }
             """)
         }
@@ -555,11 +549,9 @@ suspend fun AnyLayer1Context.diffAndFinalizeCommit(dstGraphIri: String, srcGraph
             graph mor-graph:Metadata {
                 mor-lock:Commit.$transactionId a mms:Lock ;
                     mms:snapshot mor-snapshot:Model.$transactionId ;
-                    mms:commit morc: ;
-                    .
+                    mms:commit morc: .
                 mor-snapshot:Model.$transactionId a mms:Model ;
-                    mms:graph mor-graph:Model.$transactionId ;
-                    .
+                    mms:graph mor-graph:Model.$transactionId .
             }
         }
     """)

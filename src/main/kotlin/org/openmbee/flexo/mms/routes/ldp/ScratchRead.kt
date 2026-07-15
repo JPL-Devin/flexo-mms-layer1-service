@@ -15,8 +15,8 @@ private val SPARQL_BGP_SCRATCH: (Boolean, Boolean) -> String = { allScratches, a
     graph mor-graph:Metadata {
         ${"optional {" iff allScratches}${"""
             ?$SPARQL_VAR_NAME_SCRATCH a mms:Scratch ;
-                mms:etag ?__mms_etag ;
-                ${"?scratch_p ?scratch_o ;" iff allData}
+                mms:etag ?__mms_etag${" ;" iff allData}
+                ${"?scratch_p ?scratch_o" iff allData}
                 .
         """.reindent(if(allScratches) 3 else 2)}
         ${"}" iff allScratches}
@@ -32,8 +32,7 @@ private val SPARQL_CONSTRUCT_SCRATCH: (Boolean, Boolean) -> String = { allScratc
     construct {
         ?$SPARQL_VAR_NAME_SCRATCH a mms:Scratch ;
             mms:etag ?__mms_etag ;
-            ?scratch_p ?scratch_o ;
-            .
+            ?scratch_p ?scratch_o .
         ${generateReadContextBgp(Permission.READ_SCRATCH).reindent(2)}
     } where {
         ${SPARQL_BGP_SCRATCH(allScratches, allData).reindent(2)}

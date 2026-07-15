@@ -14,8 +14,8 @@ private val SPARQL_BGP_GROUP: (Boolean, Boolean) -> String = { allGroups, allDat
     graph m-graph:AccessControl.Agents {
         ${"optional {" iff allGroups}${"""
             ?$SPARQL_VAR_NAME_GROUP a mms:Group ;
-                mms:etag ?__mms_etag ;
-                ${"?group_p ?group_o ;" iff allData}
+                mms:etag ?__mms_etag${" ;" iff allData}
+                ${"?group_p ?group_o" iff allData}
                 .
         """.reindent(if(allGroups) 3 else 2)}
         ${"}" iff allGroups}
@@ -23,8 +23,7 @@ private val SPARQL_BGP_GROUP: (Boolean, Boolean) -> String = { allGroups, allDat
         ${"""
             optional {
                 ?thing mms:group ?$SPARQL_VAR_NAME_GROUP ;
-                    ?thing_p ?thing_o ;
-                    .
+                    ?thing_p ?thing_o .
             }            
         """.reindent(2) iff allData}
     }
@@ -38,9 +37,7 @@ private val SPARQL_BGP_GROUP: (Boolean, Boolean) -> String = { allGroups, allDat
 private val SPARQL_CONSTRUCT_GROUP: (Boolean, Boolean) -> String = { allGroups, allData ->  """
     construct {
         ?$SPARQL_VAR_NAME_GROUP ?group_p ?group_o ;
-            mms:etag ?__mms_etag ;
-            .
-        
+            mms:etag ?__mms_etag .
         ?thing ?thing_p ?thing_o .
         
         ?groupPolicy ?groupPolicy_p ?groupPolicy_o .
