@@ -25,7 +25,7 @@ private val SPARQL_CONSTRUCT_LOCK_LIST_PROPERTIES = """
     dct:title ?__lock_title ;
     mms:id ?__lock_id ;
     mms:snapshot ?__lock_snapshot ;
-    mms:createdBy ?__lock_createdBy ;
+    mms:createdBy ?__lock_createdBy
 """
 
 // reusable basic graph pattern for matching lock(s)
@@ -33,8 +33,8 @@ private val SPARQL_BGP_LOCK: (Boolean, Boolean) -> String = { allLocks, allData 
     graph mor-graph:Metadata {
         ${"optional {" iff allLocks}${"""
             ?$SPARQL_VAR_NAME_LOCK a mms:Lock ;
-                mms:etag ?__mms_etag ;
-                ${"?lock_p ?lock_o ;" iff (allData && !allLocks)}
+                mms:etag ?__mms_etag${" ;" iff (allData && !allLocks)}
+                ${"?lock_p ?lock_o" iff (allData && !allLocks)}
                 .
         """.reindent(if(allLocks) 3 else 2)}
         ${"}" iff allLocks}
@@ -58,8 +58,8 @@ private val SPARQL_BGP_LOCK: (Boolean, Boolean) -> String = { allLocks, allData 
 private val SPARQL_CONSTRUCT_LOCK: (Boolean, Boolean) -> String = { allLocks, allData ->  """
     construct {
         ?$SPARQL_VAR_NAME_LOCK a mms:Lock ;
-            mms:etag ?__mms_etag ;
-            ${"?lock_p ?lock_o ;" iff (allData && !allLocks)}
+            mms:etag ?__mms_etag${" ;" iff allData}
+            ${"?lock_p ?lock_o" iff (allData && !allLocks)}
             ${SPARQL_CONSTRUCT_LOCK_LIST_PROPERTIES iff (allData && allLocks)}
             .
 

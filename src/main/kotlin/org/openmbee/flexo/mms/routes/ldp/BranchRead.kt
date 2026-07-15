@@ -26,7 +26,7 @@ private val SPARQL_CONSTRUCT_BRANCH_LIST_PROPERTIES = """
     dct:title ?__branch_title ;
     mms:id ?__branch_id ;
     mms:snapshot ?__branch_snapshot ;
-    mms:createdBy ?__branch_createdBy ;
+    mms:createdBy ?__branch_createdBy
 """
 
 // reusable basic graph pattern for matching branch(es)
@@ -59,8 +59,8 @@ private val SPARQL_BGP_BRANCH: (Boolean, Boolean) -> String = { allBranches, all
 private val SPARQL_CONSTRUCT_BRANCH: (Boolean, Boolean) -> String = { allBranches, allData -> """
     construct {
         ?$SPARQL_VAR_NAME_BRANCH a mms:Branch ;
-            mms:etag ?__mms_etag ;
-            ${"?branch_p ?branch_o ;" iff (allData && !allBranches)}
+            mms:etag ?__mms_etag${" ;" iff allData}
+            ${"?branch_p ?branch_o" iff (allData && !allBranches)}
             ${SPARQL_CONSTRUCT_BRANCH_LIST_PROPERTIES iff (allData && allBranches)}
             .
 
