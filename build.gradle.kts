@@ -65,6 +65,8 @@ dependencies {
     implementation("io.ktor:ktor-server-core:$ktorVersion")
     implementation("io.ktor:ktor-server-auth:$ktorVersion")
     implementation("io.ktor:ktor-server-auth-jwt:$ktorVersion")
+    // JWKS fetching for optional RS256 verification (explicit, though ktor-server-auth-jwt provides it transitively)
+    implementation("com.auth0:jwks-rsa:0.22.2")
     implementation("io.ktor:ktor-server-call-logging:$ktorVersion")
     implementation("io.ktor:ktor-server-conditional-headers:$ktorVersion")
     implementation("io.ktor:ktor-server-cors:$ktorVersion")
