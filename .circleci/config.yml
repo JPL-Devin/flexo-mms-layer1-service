@@ -63,11 +63,16 @@ jobs:
           at: ~/
       - checkout
       - run:
-          name: Fetch full git history for SonarCloud blame
+          name: Re-fetch all git objects for SonarCloud blame
           command: |
-            if [ "$(git rev-parse --is-shallow-repository)" = "true" ]; then
-              git fetch --unshallow
-            fi
+            # The .git directory shipped between jobs via the CircleCI workspace
+            # tarball can be missing blob objects. SonarCloud's jgit-based
+            # `git blame` walks each file's history and fails with
+            # MissingObjectException when an ancestor blob is absent. --unshallow
+            # does not help because the repo is not detected as shallow; --refetch
+            # re-downloads every object as a fresh clone would, ignoring what the
+            # local repo claims to already have.
+            git fetch --refetch
       - sonarcloud/scan
 
   deploy_snapshot:
