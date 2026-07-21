@@ -155,7 +155,7 @@ suspend fun<TRequestContext: GenericRequest> Layer1Context<TRequestContext, Stor
 
     // not requesting data; done
     if(allData == false) {
-        call.respond(HttpStatusCode.NoContent)
+        return call.respond(HttpStatusCode.NoContent)
     }
 
     // enumerate all artifacts
