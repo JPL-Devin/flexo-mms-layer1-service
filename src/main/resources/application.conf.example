@@ -34,7 +34,7 @@ mms {
         graph-store-protocol-url = "https://quad-store-domain/sparql/gsp"
         graph-store-protocol-url = ${?FLEXO_MMS_GRAPH_STORE_PROTOCOL_URL}
         graph-store-protocol-accepts = "text/turtle, application/ld+json, application/rdf+xml"
-        graph-store-protocol-url = ${?FLEXO_MMS_GRAPH_STORE_PROTOCOL_ACCEPTS}
+        graph-store-protocol-accepts = ${?FLEXO_MMS_GRAPH_STORE_PROTOCOL_ACCEPTS}
     }
 }
 
