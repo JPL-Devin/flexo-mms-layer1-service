@@ -60,6 +60,7 @@ open class GroupAny : CommonSpec() {
 
     val demoGroupId = "ldap/cn=all.personnel,ou=personnel"
     val demoGroupTitle = "Test Group"
+    val demoGroupPath = "$basePathGroups/${URLEncoder.encode(demoGroupId, "UTF-8")}"
 
     val validGroupBody = withAllTestPrefixes("""
         <>

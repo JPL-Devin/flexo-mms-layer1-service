@@ -129,5 +129,38 @@ class PolicyCreate : CommonSpec() {
                 }
             }
         }
+
+        "replace policy replaces all properties" {
+            testApplication {
+                // create the policy with the original role
+                httpPut(policyPath, true) {
+                    setTurtleBody(withAllTestPrefixes(validPolicyBody))
+                }.apply {
+                    this shouldHaveStatus HttpStatusCode.Created
+                }
+
+                // replace it with a different role
+                val updatedRoleNodes = listOf(MMS_OBJECT.ROLE.AdminOrg)
+
+                httpPut(policyPath, true) {
+                    setTurtleBody(withAllTestPrefixes("""
+                        <>
+                            mms:subject <${localIri(testUserPath)}> ;
+                            mms:scope <${localIri(clusterScopePath)}> ;
+                            mms:role ${updatedRoleNodes.joinToString(", ") { "<${it.uri}>" }} ;
+                            .
+                    """.trimIndent()))
+                }.apply {
+                    this shouldHaveStatus HttpStatusCode.OK
+
+                    // exclusive validation: the original role grant must be gone
+                    this includesTriples {
+                        modelName = "replace policy"
+
+                        validatePolicyTriples(this@apply, policyId, testUserPath, clusterScopePath, updatedRoleNodes)
+                    }
+                }
+            }
+        }
     }
 }
