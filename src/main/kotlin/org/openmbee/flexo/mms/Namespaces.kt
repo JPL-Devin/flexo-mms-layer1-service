@@ -37,8 +37,8 @@ class PrefixMapBuilder(other: PrefixMapBuilder?=null, setup: (PrefixMapBuilder.(
 
     fun terse(predicate: Property): String {
         val prefixId = find(predicate.nameSpace) ?: ""
-        val suffix = predicate.uri.substring(0, prefixId.length)
-        return if(prefixId.isNotEmpty()) "$prefixId:$suffix" else "<$suffix>"
+        return if(prefixId.isNotEmpty()) "$prefixId:${predicate.uri.substring(predicate.nameSpace.length)}"
+            else "<${predicate.uri}>"
     }
 
     override fun toString(): String {
