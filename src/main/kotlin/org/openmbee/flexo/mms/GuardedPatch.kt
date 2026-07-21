@@ -113,10 +113,12 @@ suspend fun <TResponseContext: LdpMutateResponse> LdpDcLayer1Context<TResponseCo
             }
         }
 
-        // assert any HTTP preconditions supplied by the user
+        // assert any HTTP preconditions supplied by the user; bind the resource's etag in the same
+        // group so the injected filter/values patterns can constrain it
         assertPreconditions(this) {
             """
-                graph $graph {
+                graph $etagGraph {
+                    $objectKey: mms:etag ?__mms_etag .
                     $it
                 }
             """

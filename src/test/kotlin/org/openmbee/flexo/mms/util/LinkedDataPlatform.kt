@@ -498,6 +498,41 @@ class LinkedDataPlatformDirectContainerTests(
             }
         }
 
+        "PATCH $resourcePath - SPARQL UPDATE: If-None-Match with a matching etag fails" {
+            testApplication {
+                val createdBase = resourceCreator()
+                setResource(createdBase)
+                val etag = createdBase.headers[HttpHeaders.ETag]!!
+                httpPatch(resourcePath) {
+                    header(HttpHeaders.IfNoneMatch, "\"$etag\", \"${UUID.randomUUID()}\"")
+                    setSparqlUpdateBody(withAllTestPrefixes("""
+                        insert data {
+                            $PATCH_INSERT_TRIPLES
+                        }
+                    """.trimIndent()))
+                }.apply {
+                    this shouldHaveStatus HttpStatusCode.PreconditionFailed
+                }
+            }
+        }
+
+        "PATCH $resourcePath - SPARQL UPDATE: If-None-Match with only non-matching etags succeeds" {
+            testApplication {
+                val createdBase = resourceCreator()
+                setResource(createdBase)
+                httpPatch(resourcePath) {
+                    header(HttpHeaders.IfNoneMatch, "\"${UUID.randomUUID()}\", \"${UUID.randomUUID()}\"")
+                    setSparqlUpdateBody(withAllTestPrefixes("""
+                        insert data {
+                            $PATCH_INSERT_TRIPLES
+                        }
+                    """.trimIndent()))
+                }.apply {
+                    validatePatchResponse(this)
+                }
+            }
+        }
+
         "PATCH $resourcePath - SPARQL UPDATE: multiple INSERT DATA operations all apply" {
             testApplication {
                 val createdBase = resourceCreator()
