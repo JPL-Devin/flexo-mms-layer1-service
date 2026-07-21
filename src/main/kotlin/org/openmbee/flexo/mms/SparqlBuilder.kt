@@ -69,11 +69,16 @@ fun serializePairs(node: Resource): String {
         node.listProperties().forEach {
             val predicateUri = it.predicate.asResource().uri
             if(predicateUri != prevPredicateUri) {
-                prevPredicateUri = predicateUri
+                // separate predicate groups, except before the first predicate
                 if(prevPredicateUri.isNotEmpty()) {
                     this.append(" ; ")
                 }
+                prevPredicateUri = predicateUri
                 this.appendIri(predicateUri)
+            }
+            else {
+                // separate multiple objects of the same predicate
+                this.append(" , ")
             }
 
             if(it.`object`.isLiteral) {
