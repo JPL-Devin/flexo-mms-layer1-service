@@ -111,6 +111,71 @@ enum class Role(val id: String) {
     ADMIN_POLICY("AdminPolicy"),
 }
 
+/**
+ * Generates the pattern that looks up the class of a candidate policy scope IRI.
+ *
+ * Orgs, repos, and collections are typed in `m-graph:Cluster`, but repo-nested resources
+ * (branches, locks, scratches, diffs, commits, artifacts) are typed only in their repo's
+ * `Metadata`/`Artifacts` graph, and access-control resources are typed in the AccessControl
+ * graphs. The lookup must accept typing from the appropriate graph, otherwise policies scoped
+ * directly to those resources (including every `autoPolicy(...)` grant) can never authorize.
+ *
+ * The repo graph is matched by IRI suffix via a graph variable instead of the `mor-graph:`
+ * prefix because this BGP is also emitted for requests that carry no repo context (e.g. policy
+ * writes, which pass explicit [scopeUris]). The scope VALUES are repeated inside that union
+ * branch so the subject is bound during bottom-up evaluation — without it, the branch would
+ * scan every rdf:type triple across all graphs before joining.
+ */
+private fun scopeTypeLookup(scope: Scope, scopeValuesClause: String): String {
+    val clusterLookup = """
+        graph m-graph:Cluster {
+            ?__mms_scope rdf:type ?__mms_scopeType .
+        }
+    """.trimIndent()
+
+    return when(scope) {
+        Scope.BRANCH, Scope.LOCK, Scope.SCRATCH, Scope.DIFF, Scope.COMMIT, Scope.ARTIFACT -> {
+            val repoGraphSuffix = if(scope == Scope.ARTIFACT) "/graphs/Artifacts" else "/graphs/Metadata"
+            """
+            {
+                $clusterLookup
+            } union {
+                # repo-nested resources are typed in a repo graph rather than the cluster graph;
+                # re-bind the candidate scopes so this branch evaluates with a bounded subject
+                values ?__mms_scope {
+                    $scopeValuesClause
+                }
+                graph ?__mms_scopeTypeGraph {
+                    ?__mms_scope rdf:type ?__mms_scopeType .
+                }
+                filter(strends(str(?__mms_scopeTypeGraph), "$repoGraphSuffix"))
+            }
+            """
+        }
+        Scope.GROUP, Scope.USER -> """
+            {
+                $clusterLookup
+            } union {
+                # agents are typed in the access control graph rather than the cluster graph
+                graph m-graph:AccessControl.Agents {
+                    ?__mms_scope rdf:type ?__mms_scopeType .
+                }
+            }
+        """
+        Scope.POLICY -> """
+            {
+                $clusterLookup
+            } union {
+                # policies are typed in the access control graph rather than the cluster graph
+                graph m-graph:AccessControl.Policies {
+                    ?__mms_scope rdf:type ?__mms_scopeType .
+                }
+            }
+        """
+        else -> clusterLookup
+    }
+}
+
 @JvmOverloads
 fun permittedActionSparqlBgp(
     permission: Permission,
@@ -192,12 +257,10 @@ fun permittedActionSparqlBgp(
 
         # intersect scopes relevant to context
         $scopePattern
-    
+
         # lookup scope's class
-        graph m-graph:Cluster {
-            ?__mms_scope rdf:type ?__mms_scopeType .
-        }
-        
+        ${scopeTypeLookup(scope, scopeValuesClause)}
+
         # lookup scope class, role, and permissions
         graph m-graph:AccessControl.Definitions {
             ?__mms_scopeType rdfs:subClassOf*/mms:implies*/^rdfs:subClassOf* mms:${scope.type} .
