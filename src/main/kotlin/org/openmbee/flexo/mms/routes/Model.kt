@@ -6,6 +6,7 @@ import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import io.ktor.util.*
 import loadModel
 import org.apache.jena.rdf.model.Property
 import org.apache.jena.rdf.model.Resource
@@ -15,7 +16,6 @@ import org.openmbee.flexo.mms.*
 import org.openmbee.flexo.mms.routes.gsp.RefType
 import org.openmbee.flexo.mms.server.graphStoreProtocol
 import org.openmbee.flexo.mms.routes.gsp.readModel
-import io.ktor.util.*
 import java.io.ByteArrayOutputStream
 
 
@@ -81,8 +81,67 @@ fun Route.crudModel() {
  *
  *   ?baseCommit and ?stagingGraph, ?modelGraph should be part of the conditions pattern
 */
+/**
+ * Generates WHERE patterns guarding mutex acquisition on the given ref. When a TTL is
+ * configured, a transaction older than the TTL is considered abandoned (its request died before
+ * releasing the mutex): it does not block acquisition and is matched for deletion so the new
+ * transaction steals the mutex in the same atomic update. A transaction with no mms:created
+ * timestamp is treated as abandoned too.
+ */
+private fun AnyLayer1Context.mutexAcquisitionPatterns(ref: String): String {
+    val ttlSeconds = call.application.mutexTtlSeconds
+
+    if(ttlSeconds <= 0L) {
+        return """
+            filter not exists {
+                graph m-graph:Transactions {
+                    ?t a mms:Transaction ;
+                        mms-txn:mutex ${ref}: .
+                }
+            }
+        """
+    }
+
+    val staleThreshold = java.time.Instant.now().minusSeconds(ttlSeconds).toString()
+
+    return """
+        # match any abandoned transaction holding this mutex so it gets deleted (stolen)
+        optional {
+            graph m-graph:Transactions {
+                ?__mms_staleTxn a mms:Transaction ;
+                    mms-txn:mutex ${ref}: .
+                optional {
+                    ?__mms_staleTxn mms:created ?__mms_staleTxnCreated .
+                }
+                filter(!bound(?__mms_staleTxnCreated) || ?__mms_staleTxnCreated < "$staleThreshold"^^xsd:dateTime)
+                ?__mms_staleTxn ?__mms_staleTxn_p ?__mms_staleTxn_o .
+            }
+        }
+
+        # abort if a live transaction still holds this mutex
+        filter not exists {
+            graph m-graph:Transactions {
+                ?t a mms:Transaction ;
+                    mms-txn:mutex ${ref}: ;
+                    mms:created ?t_created .
+                filter(?t_created >= "$staleThreshold"^^xsd:dateTime)
+            }
+        }
+    """
+}
+
+// deletes the triples of an abandoned mutex-holding transaction matched by mutexAcquisitionPatterns
+private const val SPARQL_DELETE_STALE_TXN = """
+    graph m-graph:Transactions {
+        ?__mms_staleTxn ?__mms_staleTxn_p ?__mms_staleTxn_o .
+    }
+"""
+
 suspend fun AnyLayer1Context.createBranchModifyingTransaction(conditions: ConditionsGroup): String {
     val update = buildSparqlUpdate {
+        delete {
+            raw(SPARQL_DELETE_STALE_TXN)
+        }
         insert {
             txn("mms-txn:stagingGraph" to "?stagingGraph",
                 "mms-txn:baseCommit" to "?baseCommit",
@@ -90,14 +149,7 @@ suspend fun AnyLayer1Context.createBranchModifyingTransaction(conditions: Condit
                 "mms-txn:mutex" to "morb:")
         }
         where {
-            raw("""
-                    filter not exists {
-                        graph m-graph:Transactions { 
-                            ?t a mms:Transaction ;
-                                mms-txn:mutex morb: .
-                        }    
-                    }
-                """)
+            raw(mutexAcquisitionPatterns("morb"))
             raw(conditions.requiredPatterns().joinToString("\n"))
         }
     }
@@ -139,6 +191,9 @@ suspend fun AnyLayer1Context.validateBranchModifyingTransaction(conditions: Cond
  */
 suspend fun AnyLayer1Context.createRefCreatingTransaction(conditions: ConditionsGroup, ref: String, updateSetup: (SparqlParameterizer.() -> SparqlParameterizer)? = null): String {
     val update = buildSparqlUpdate {
+        delete {
+            raw(SPARQL_DELETE_STALE_TXN)
+        }
         insert {
             txn(
                 "mms-txn:commitSource" to "?__mms_commitSource",
@@ -146,16 +201,7 @@ suspend fun AnyLayer1Context.createRefCreatingTransaction(conditions: Conditions
             )
         }
         where {
-            raw(
-                """
-                    filter not exists {
-                        graph m-graph:Transactions { 
-                            ?t a mms:Transaction ;
-                                mms-txn:mutex ${ref}: .
-                        }    
-                    }
-                """
-            )
+            raw(mutexAcquisitionPatterns(ref))
             raw(conditions.requiredPatterns().joinToString("\n"))
         }
     }
