@@ -2,6 +2,7 @@ package org.openmbee.flexo.mms.routes.sparql
 
 import com.linkedin.migz.MiGzOutputStream
 import io.ktor.http.*
+import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -14,6 +15,7 @@ import org.openmbee.flexo.mms.*
 import org.openmbee.flexo.mms.routes.gsp.RefType
 import org.openmbee.flexo.mms.server.graphStoreProtocol
 import org.openmbee.flexo.mms.routes.gsp.readModel
+import io.ktor.util.*
 import java.io.ByteArrayOutputStream
 
 
@@ -504,13 +506,32 @@ suspend fun AnyLayer1Context.diffAndFinalizeCommit(dstGraphIri: String, srcGraph
         } 
     """.trimIndent()
 
-    log("Prepared commit update string:")
-    executeSparqlUpdate(commitUpdateString) {
+    // snapshot creation: copy the new model state to a dedicated graph and register the
+    // lock/snapshot metadata for the commit being created
+    val snapshotUpdateString = """
+        copy graph <$dstGraphIri> to graph mor-graph:Model.$transactionId ;
+
+        insert data {
+            graph m-graph:Graphs {
+                mor-graph:Model.$transactionId a mms:ModelGraph .
+            }
+
+            graph mor-graph:Metadata {
+                mor-lock:Commit.$transactionId a mms:Lock ;
+                    mms:snapshot mor-snapshot:Model.$transactionId ;
+                    mms:commit morc: .
+                mor-snapshot:Model.$transactionId a mms:Model ;
+                    mms:graph mor-graph:Model.$transactionId .
+            }
+        }
+    """.trimIndent()
+
+    val commitParams: SparqlParameterizer.() -> SparqlParameterizer = {
         prefixes(prefixes)
 
         iri(
-            "_insGraph" to (diffInsGraph ?: "mms:voidInsGraph"),
-            "_delGraph" to (diffDelGraph ?: "mms:voidDelGraph")
+            "_insGraph" to diffInsGraph!!,
+            "_delGraph" to diffDelGraph!!,
         )
 
         datatyped(
@@ -520,6 +541,24 @@ suspend fun AnyLayer1Context.diffAndFinalizeCommit(dstGraphIri: String, srcGraph
         literal(
             "_txnId" to transactionId,
         )
+    }
+
+    log("Prepared commit update string:")
+    if(useAtomicCommit()) {
+        // the store executes multi-operation updates transactionally: send the snapshot
+        // creation and branch-pointer move as one atomic request (snapshot ops still first so
+        // behavior degrades to write-ahead if the store's transactionality was misdetected)
+        executeSparqlUpdate("$snapshotUpdateString ;\n\n$commitUpdateString", commitParams)
+    }
+    else {
+        // write-ahead ordering: create the snapshot and its metadata BEFORE moving the branch
+        // pointer. a failure between the two requests then leaves only reclaimable orphans
+        // (a snapshot/lock for a commit that never landed) instead of a branch whose current
+        // commit has no snapshot — a state every subsequent commit rejects as corrupt
+        executeSparqlUpdate(snapshotUpdateString) {
+            prefixes(prefixes)
+        }
+        executeSparqlUpdate(commitUpdateString, commitParams)
     }
 
     val constructCommitString = buildSparqlQuery {
@@ -537,25 +576,78 @@ suspend fun AnyLayer1Context.diffAndFinalizeCommit(dstGraphIri: String, srcGraph
         }
     }
     val constructCommitResponseText = executeSparqlConstructOrDescribe(constructCommitString)
-    // start copying staging to new model
-    executeSparqlUpdate("""
-        copy graph <$dstGraphIri> to graph mor-graph:Model.$transactionId ;
-
-        insert data {
-            graph m-graph:Graphs {
-                mor-graph:Model.$transactionId a mms:ModelGraph .
-            }
-
-            graph mor-graph:Metadata {
-                mor-lock:Commit.$transactionId a mms:Lock ;
-                    mms:snapshot mor-snapshot:Model.$transactionId ;
-                    mms:commit morc: .
-                mor-snapshot:Model.$transactionId a mms:Model ;
-                    mms:graph mor-graph:Model.$transactionId .
-            }
-        }
-    """)
     return constructCommitResponseText
+}
+
+// caches the result of the atomic multi-operation update support probe per application instance
+private val ATOMIC_UPDATE_SUPPORTED = AttributeKey<Boolean>("flexo-mms.atomicUpdateSupported")
+
+/**
+ * Resolves whether commit finalization should send its two updates as a single request, per the
+ * `atomic-commit` configuration ("always"/"never"/"auto"). In auto mode the quad-store is probed
+ * once per application instance and the result cached; anything inconclusive falls back to the
+ * sequential write-ahead path, which is safe on any SPARQL 1.1 store.
+ */
+suspend fun AnyLayer1Context.useAtomicCommit(): Boolean {
+    val application = call.application
+    return when(application.atomicCommitMode) {
+        "always" -> true
+        "never" -> false
+        else -> {
+            if(!application.attributes.contains(ATOMIC_UPDATE_SUPPORTED)) {
+                application.attributes.put(ATOMIC_UPDATE_SUPPORTED, probeAtomicUpdateSupport())
+            }
+            application.attributes[ATOMIC_UPDATE_SUPPORTED]
+        }
+    }
+}
+
+/**
+ * Probes whether the quad-store executes multi-operation SPARQL update requests as a single
+ * transaction. Sends a request whose first operation inserts a marker and whose second operation
+ * fails (COPY of a graph that does not exist, without SILENT): if the request errors and the
+ * marker was rolled back, the store is transactional. A request that succeeds outright (store is
+ * lenient about the failing operation) is treated as inconclusive.
+ */
+suspend fun AnyLayer1Context.probeAtomicUpdateSupport(): Boolean {
+    val markerGraph = "urn:mms:atomic-probe:$transactionId"
+    var supported = false
+
+    try {
+        executeSparqlUpdate("""
+            insert data {
+                graph <$markerGraph> {
+                    <urn:mms:probe> <urn:mms:probe> <urn:mms:probe> .
+                }
+            } ;
+            copy graph <urn:mms:atomic-probe-missing:$transactionId> to graph <urn:mms:atomic-probe-dst:$transactionId>
+        """.trimIndent())
+
+        // the failing operation was tolerated; inconclusive — use the sequential path
+        supported = false
+    }
+    catch(e: Non200Response) {
+        // request failed as intended; transactional stores roll back the marker insert
+        val askResponse = executeSparqlSelectOrAsk("""
+            ask {
+                graph <$markerGraph> {
+                    ?s ?p ?o .
+                }
+            }
+        """.trimIndent())
+        supported = !parseSparqlResultsJsonAsk(askResponse)
+    }
+    finally {
+        try {
+            executeSparqlUpdate("drop silent graph <$markerGraph>")
+        }
+        catch(e: Exception) {
+            log.warn("Failed to clean up atomic-update probe graph <$markerGraph>: ${e.message}")
+        }
+    }
+
+    log.info("Atomic multi-operation update support: $supported")
+    return supported
 }
 
 /**

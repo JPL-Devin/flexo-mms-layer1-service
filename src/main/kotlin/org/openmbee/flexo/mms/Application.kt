@@ -86,4 +86,14 @@ val Application.requestTimeout: Long?
     get() = environment.config.propertyOrNull("mms.application.request-timeout")?.getString()?.toLongOrNull()
         ?.let { it * 1000 }
 
+/**
+ * Commit finalization mode. "auto" (default) probes the quad-store once for transactional
+ * multi-operation update support and sends the snapshot and branch-pointer updates as a single
+ * atomic request when supported; "always" forces the single-request path; "never" always uses
+ * two sequential requests (snapshot first, then branch pointer).
+ */
+val Application.atomicCommitMode: String
+    get() = environment.config.propertyOrNull("mms.application.atomic-commit")?.getString()?.ifEmpty { null }
+        ?: "auto"
+
 class AuthorizationRequiredException(message: String): Exception(message) {}

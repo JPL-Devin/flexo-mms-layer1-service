@@ -12,6 +12,13 @@ mms {
         gzip-literals-larger-than-kib = 512
         gzip-literals-larger-than-kib = ${?FLEXO_MMS_GZIP_LITERALS_LARGER_THAN_KIB}
 
+        # commit finalization mode: "auto" (default) probes the quad-store once for transactional
+        # multi-operation update support and uses a single atomic request when supported;
+        # "always" forces the single-request path; "never" always uses two sequential requests
+        # (snapshot first, then branch pointer)
+        atomic-commit = "auto"
+        atomic-commit = ${?FLEXO_MMS_ATOMIC_COMMIT}
+
         # request timeout in seconds for requests to backend quadstore (default 30 min)
         request-timeout = 1800
         request-timeout = ${?FLEXO_MMS_SPARQL_REQUEST_TIMEOUT}
