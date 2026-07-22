@@ -21,7 +21,7 @@ private val SPARQL_BGP_ORG: (Boolean, Boolean) -> String = { allOrgs, allData ->
         ${"}" iff allOrgs}
     }
     
-    ${permittedActionSparqlBgp(Permission.READ_ORG, Scope.CLUSTER,
+    ${permittedActionSparqlBgp(Permission.READ_ORG, if(allOrgs) Scope.CLUSTER else Scope.ORG,
         scopeJoinVars = if(allOrgs) listOf(SPARQL_VAR_NAME_ORG) else null)}
 """ }
 
