@@ -135,6 +135,42 @@ class DiffCreateTest : RefAny() {
             }
         }
 
+        "no-op update leaves no dangling diff metadata" {
+            testApplication {
+                val body = withAllTestPrefixes("""
+                    insert data {
+                        <urn:test:noop> <urn:test:p> <urn:test:o> .
+                    }
+                """.trimIndent())
+
+                // first update commits the change
+                commitModel(masterBranchPath, body)
+
+                // identical update is a no-op: responds without creating a commit
+                httpPost("$masterBranchPath/update") {
+                    setSparqlUpdateBody(body)
+                }.apply {
+                    this shouldHaveStatus HttpStatusCode.OK
+                }
+
+                // every mms:Diff must reference a commit that exists
+                withClue("no diff should reference a commit that was never created") {
+                    askBackend("""
+                        PREFIX mms: <https://mms.openmbee.org/rdf/ontology/>
+                        ASK {
+                            GRAPH <${localIri("$demoRepoPath/graphs/Metadata")}> {
+                                ?diff a mms:Diff ;
+                                    mms:dstCommit ?dstCommit .
+                                FILTER NOT EXISTS {
+                                    ?dstCommit a mms:Commit .
+                                }
+                            }
+                        }
+                    """.trimIndent()) shouldBe false
+                }
+            }
+        }
+
         "create diff leaves no dangling transaction" {
             testApplication {
                 setupDivergentRefs()

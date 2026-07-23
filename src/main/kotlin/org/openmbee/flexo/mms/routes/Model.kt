@@ -476,6 +476,40 @@ suspend fun AnyLayer1Context.diffAndFinalizeCommit(dstGraphIri: String, srcGraph
     val deleteModel = parseModelStripPrefixes(RdfContentTypes.Turtle, deleteDataResponseText)
     // empty delta (no changes)
     if (insertModel.isEmpty && deleteModel.isEmpty) {
+        // remove the diff metadata and auto-created policy inserted by the diff update above;
+        // the commit this diff describes will never be created, so leaving them would accrete a
+        // dangling mms:Diff and an orphaned policy on every no-op update
+        executeSparqlUpdate("""
+            delete {
+                graph mor-graph:Metadata {
+                    ?diff ?diff_p ?diff_o .
+                }
+                graph m-graph:AccessControl.Policies {
+                    ?createdPolicy ?createdPolicy_p ?createdPolicy_o .
+                }
+                graph m-graph:Transactions {
+                    mt: mms:createdPolicy ?createdPolicy .
+                }
+            }
+            where {
+                graph mor-graph:Metadata {
+                    ?diff a mms:Diff ;
+                        mms:dstCommit morc: ;
+                        ?diff_p ?diff_o .
+                }
+                optional {
+                    graph m-graph:Transactions {
+                        mt: mms:createdPolicy ?createdPolicy .
+                    }
+                    graph m-graph:AccessControl.Policies {
+                        ?createdPolicy ?createdPolicy_p ?createdPolicy_o .
+                    }
+                }
+            }
+        """) {
+            prefixes(prefixes)
+        }
+
         // locate branch node
         val branchNode = diffConstructModel.createResource(prefixes["morb"])
         // get its etag value
