@@ -290,7 +290,7 @@ fun AnyLayer1Context.genCommitUpdate(delete: String="", insert: String="", where
 /**
  *   Used by ModelLoad to get difference between current staging graph and newly loaded graph in the form of delete/insert graphs
  */
-fun AnyLayer1Context.genDiffUpdate(diffTriples: String="", conditions: ConditionsGroup?=null, rawWhere: String?=null): String {
+fun AnyLayer1Context.genDiffUpdate(diffTriples: String="", conditions: ConditionsGroup?=null, rawWhere: String?=null, explicitDiffIri: String?=null): String {
     return buildSparqlUpdate {
         insert {
             subtxn("diff", mapOf(
@@ -304,40 +304,49 @@ fun AnyLayer1Context.genDiffUpdate(diffTriples: String="", conditions: Condition
 
             raw("""
                 graph ?insGraph {
-                    ?ins_s ?ins_p ?ins_o .    
+                    ?ins_s ?ins_p ?ins_o .
                 }
-                
+
                 graph ?delGraph {
                     ?del_s ?del_p ?del_o .
                 }
-                
+
                 graph mor-graph:Metadata {
                     ?diff a mms:Diff ;
                         mms:id ?diffId ;
+                        mms:etag ?diffId ;
                         mms:createdBy mu: ;
                         mms:srcCommit ?srcCommit ;
                         mms:dstCommit ?dstCommit ;
                         mms:insGraph ?insGraph ;
                         mms:delGraph ?delGraph .
+
+                    $diffTriples
                 }
             """)
         }
         where {
             raw("""
+                ${conditions?.requiredPatterns()?.joinToString("\n") ?: ""}
+
                 ${rawWhere?: ""}
-                
+
                 bind(
                     sha256(
                         concat(str(?dstCommit), "\n", str(?srcCommit))
                     ) as ?diffId
                 )
-                
-                bind(
-                    iri(
-                        concat(str(?dstCommit), "/diffs/", ?diffId)
-                    ) as ?diff
-                )
-                
+
+                ${if(explicitDiffIri != null) """
+                    bind(<$explicitDiffIri> as ?diff)
+                """ else """
+                    bind(
+                        iri(
+                            concat(str(?dstCommit), "/diffs/", ?diffId)
+                        ) as ?diff
+                    )
+                """}
+
                 bind(
                     iri(
                         concat(str(mor-graph:), "Diff.Ins.", ?diffId)
