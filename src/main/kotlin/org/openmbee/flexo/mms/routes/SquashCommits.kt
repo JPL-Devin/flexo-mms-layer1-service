@@ -600,14 +600,25 @@ suspend fun LdpDcLayer1Context<LdpPostResponse>.squashCommitsImpl() {
             executeSparqlUpdate(dropStatements)
         }
     } finally {
-        //TODO missing subtxn squash
-        executeSparqlUpdate("""
-            delete where {  
-                graph m-graph:Transactions {
-                    mt: ?p ?o .
+        // delete the base transaction AND the mt:squash subtransaction created by the squash
+        // update; guarded so a failure here cannot mask the original exception or prevent the
+        // diff graph cleanup below
+        try {
+            executeSparqlUpdate("""
+                delete where {
+                    graph m-graph:Transactions {
+                        mt: ?p ?o .
+                    }
+                } ;
+                delete where {
+                    graph m-graph:Transactions {
+                        mt:squash ?sq_p ?sq_o .
+                    }
                 }
-            }
-        """)
+            """)
+        } catch (cleanup: Exception) {
+            log.warn("Failed to delete squash transaction records: ${cleanup.message}")
+        }
         // only clean up temporary diff graphs on failure — on success they are
         // stored as the newer commit's mms:insGraph/mms:delGraph
         if (!squashSucceeded) {

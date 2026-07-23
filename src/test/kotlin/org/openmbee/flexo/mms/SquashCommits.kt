@@ -84,6 +84,17 @@ class SquashCommits : ModelAny() {
                         }
                     }
                 }
+
+                // the squash left no transaction records behind (including mt:squash)
+                withClue("transactions graph should be empty after squash") {
+                    askBackend("""
+                        ASK {
+                            GRAPH <$ROOT_CONTEXT/graphs/Transactions> {
+                                ?txn ?p ?o .
+                            }
+                        }
+                    """.trimIndent()) shouldBe false
+                }
             }
         }
 
