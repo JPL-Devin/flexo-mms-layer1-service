@@ -1,6 +1,8 @@
 package org.openmbee.flexo.mms
 
 import io.kotest.assertions.ktor.client.shouldHaveStatus
+import io.kotest.assertions.withClue
+import io.kotest.matchers.shouldBe
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.server.testing.ApplicationTestBuilder
@@ -8,7 +10,83 @@ import org.openmbee.flexo.mms.util.*
 
 
 class SquashCommits : ModelAny() {
+    private fun askBackend(query: String): Boolean {
+        return org.apache.jena.sparql.exec.http.QueryExecutionHTTP.service(backend.getQueryUrl())
+            .query(query).build().use { it.execAsk() }
+    }
+
     init {
+        "squash cleans up auto-created locks on intermediate commits" {
+            testApplication {
+                commitModel(masterBranchPath, insertAliceRex)
+
+                createLock(demoRepoPath, "../branches/master", "lock-older")
+
+                commitModel(masterBranchPath, insertBobFluffy)
+
+                commitModel(masterBranchPath, """
+                    insert data {
+                        <urn:mms:charlie> <urn:mms:name> "Charlie" .
+                    }
+                """.trimIndent())
+
+                createLock(demoRepoPath, "../branches/master", "lock-newer")
+
+                // squash WITHOUT manually deleting the auto-created commit locks
+                httpPost("$demoRepoPath/squash", skipAnon = true) {
+                    setTurtleBody("""
+                        <> mms:srcRef mor-lock:lock-older .
+                        <> mms:dstRef mor-lock:lock-newer .
+                    """.trimIndent())
+                }.apply {
+                    this shouldHaveStatus HttpStatusCode.OK
+                }
+
+                val metadataGraph = "${ROOT_CONTEXT}$demoRepoPath/graphs/Metadata"
+
+                // no lock may reference a commit that no longer exists
+                withClue("auto locks of squashed commits should have been deleted") {
+                    askBackend("""
+                        PREFIX mms: <https://mms.openmbee.org/rdf/ontology/>
+                        ASK {
+                            GRAPH <$metadataGraph> {
+                                ?lock a mms:Lock ;
+                                    mms:commit ?commit .
+                                FILTER NOT EXISTS {
+                                    ?commit a mms:Commit .
+                                }
+                            }
+                        }
+                    """.trimIndent()) shouldBe false
+                }
+
+                // no model snapshot may be left without a referencing lock
+                withClue("snapshots of deleted auto locks should have been deleted") {
+                    askBackend("""
+                        PREFIX mms: <https://mms.openmbee.org/rdf/ontology/>
+                        ASK {
+                            GRAPH <$metadataGraph> {
+                                ?snapshot a mms:Model .
+                                FILTER NOT EXISTS {
+                                    ?ref mms:snapshot ?snapshot .
+                                }
+                            }
+                        }
+                    """.trimIndent()) shouldBe false
+                }
+
+                // the model graph is still intact
+                httpGet("$masterBranchPath/graph") {}.apply {
+                    this shouldHaveStatus HttpStatusCode.OK
+                    this.includesTriples {
+                        subject("urn:mms:charlie") {
+                            ignoreAll()
+                        }
+                    }
+                }
+            }
+        }
+
         "happy path: squash 3 commits into 2" {
             testApplication {
                 // commit 1: insert Alice
