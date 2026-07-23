@@ -91,6 +91,50 @@ class SquashCommits : ModelAny() {
             }
         }
 
+        "wide squash: squash 8 commits does not stall the store" {
+            testApplication {
+                commitModel(masterBranchPath, insertAliceRex)
+
+                createLock(demoRepoPath, "../branches/master", "lock-older")
+
+                // create 8 intermediate commits
+                for(i in 1..8) {
+                    commitModel(masterBranchPath, """
+                        insert data {
+                            <urn:mms:wide$i> <urn:mms:name> "Wide $i" .
+                        }
+                    """.trimIndent())
+                }
+
+                createLock(demoRepoPath, "../branches/master", "lock-newer")
+
+                // delete auto-created locks on intermediate commits
+                deleteAutoCreatedLocks(backend.getUpdateUrl(), demoRepoPath)
+
+                // squash between the two locks
+                httpPost("$demoRepoPath/squash", skipAnon = true) {
+                    setTurtleBody("""
+                        <> mms:srcRef mor-lock:lock-older .
+                        <> mms:dstRef mor-lock:lock-newer .
+                    """.trimIndent())
+                }.apply {
+                    this shouldHaveStatus HttpStatusCode.OK
+                }
+
+                // the model graph still contains all the data
+                httpGet("$masterBranchPath/graph") {}.apply {
+                    this shouldHaveStatus HttpStatusCode.OK
+                    this.includesTriples {
+                        for(i in 1..8) {
+                            subject("urn:mms:wide$i") {
+                                ignoreAll()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         "non-linear path returns 400" {
             testApplication {
                 // commit on master

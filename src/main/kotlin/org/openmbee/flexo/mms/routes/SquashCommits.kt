@@ -378,16 +378,22 @@ suspend fun LdpDcLayer1Context<LdpPostResponse>.squashCommitsImpl() {
         */
         val localConditions = SQUASH_CONDITIONS
 
-        // Build delete clauses for intermediate commits
-        val intermediateDeletePatterns = if (intermediateCommitIris.isNotEmpty()) {
-            val commitPatterns = intermediateCommitIris.mapIndexed { idx, iri ->
-                "<$iri> ?ic_p_$idx ?ic_o_$idx ."
-            }
-            val dataPatterns = intermediateDataIris.mapIndexed { idx, iri ->
-                "<$iri> ?id_p_$idx ?id_o_$idx ."
-            }
-            (commitPatterns + dataPatterns).joinToString("\n                    ")
-        } else ""
+        // Build per-node delete patterns for intermediate commits and their data
+        val intermediateNodePatterns = intermediateCommitIris.mapIndexed { idx, iri ->
+            "<$iri> ?ic_p_$idx ?ic_o_$idx ."
+        } + intermediateDataIris.mapIndexed { idx, iri ->
+            "<$iri> ?id_p_$idx ?id_o_$idx ."
+        }
+
+        val intermediateDeletePatterns = intermediateNodePatterns.joinToString("\n                    ")
+
+        // each node gets its own union branch in the WHERE clause so the solution space is the
+        // SUM of the nodes' triple counts; joining them in one basic graph pattern would make it
+        // the cross-product, which grows exponentially with the number of squashed commits and
+        // stalls the quad-store beyond a handful of commits
+        val intermediateWhereUnion = intermediateNodePatterns.joinToString(" union ") {
+            "{ graph mor-graph:Metadata { $it } }"
+        }
 
         // Build delete clauses for old patch data
         val deleteOldDataClauses = mutableListOf(
@@ -439,11 +445,9 @@ suspend fun LdpDcLayer1Context<LdpPostResponse>.squashCommitsImpl() {
                 // enforce authorization conditions (org/repo existence, UPDATE_COMMIT)
                 raw(*localConditions.requiredPatterns())
 
-                // match intermediate commit triples for deletion
-                if (intermediateDeletePatterns.isNotEmpty()) {
-                    graph("mor-graph:Metadata") {
-                        raw(intermediateDeletePatterns)
-                    }
+                // match intermediate commit triples for deletion (one union branch per node)
+                if (intermediateWhereUnion.isNotEmpty()) {
+                    raw(intermediateWhereUnion)
                 }
 
                 // match old patch data for deletion
