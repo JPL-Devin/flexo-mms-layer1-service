@@ -77,22 +77,30 @@ jobs:
     steps:
       - setup_remote_docker:
           docker_layer_caching: true
+          version: 20.10.18
       - attach_workspace:
           at: ~/
       - run:
           name: Login to Dockerhub
           command: echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
       - run:
-          name: Build docker image
+          name: Create multi-arch builder
+          command: |
+            docker buildx create --name multiarch --use || docker buildx use multiarch
+            docker buildx inspect --bootstrap
+      - run:
+          name: Build and push multi-arch docker image
           command: |
             cp src/main/resources/application.conf.example ./src/main/resources/application.conf
-            docker build -t openmbee/flexo-mms-layer1-service:latest .
+            docker buildx build --platform linux/amd64,linux/arm64 \
+              -t openmbee/flexo-mms-layer1-service:${CIRCLE_BRANCH#*/}-SNAPSHOT \
+              --push .
       - run:
-          name: Tag docker image
-          command: docker tag openmbee/flexo-mms-layer1-service:latest openmbee/flexo-mms-layer1-service:${CIRCLE_BRANCH#*/}-SNAPSHOT
-      - run:
-          name: Deploy snapshot to Dockerhub
-          command: docker push openmbee/flexo-mms-layer1-service:${CIRCLE_BRANCH#*/}-SNAPSHOT
+          name: Tag and push latest
+          command: |
+            docker buildx build --platform linux/amd64,linux/arm64 \
+              -t openmbee/flexo-mms-layer1-service:latest \
+              --push .
   deploy_nightly:
     executor:
       name: docker/docker
@@ -100,6 +108,7 @@ jobs:
     steps:
       - setup_remote_docker:
           docker_layer_caching: true
+          version: 20.10.18
       - attach_workspace:
           at: ~/
       - checkout
@@ -107,16 +116,17 @@ jobs:
           name: Login to Dockerhub
           command: echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
       - run:
-          name: Build docker image
+          name: Create multi-arch builder
+          command: |
+            docker buildx create --name multiarch --use || docker buildx use multiarch
+            docker buildx inspect --bootstrap
+      - run:
+          name: Build and push multi-arch docker image
           command: |
             cp src/main/resources/application.conf.example ./src/main/resources/application.conf
-            docker build -t openmbee/flexo-mms-layer1-service:latest .
-      - run:
-          name: Tag docker image
-          command: docker tag openmbee/flexo-mms-layer1-service:latest openmbee/flexo-mms-layer1-service:NIGHTLY-SNAPSHOT
-      - run:
-          name: Deploy snapshot to Dockerhub
-          command: docker push openmbee/flexo-mms-layer1-service:NIGHTLY-SNAPSHOT
+            docker buildx build --platform linux/amd64,linux/arm64 \
+              -t openmbee/flexo-mms-layer1-service:NIGHTLY-SNAPSHOT \
+              --push .
   deploy_release:
     executor:
       name: docker/docker
@@ -124,25 +134,25 @@ jobs:
     steps:
       - setup_remote_docker:
           docker_layer_caching: true
+          version: 20.10.18
       - attach_workspace:
           at: ~/
       - run:
           name: Login to Dockerhub
           command: echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
       - run:
-          name: Build docker image
+          name: Create multi-arch builder
+          command: |
+            docker buildx create --name multiarch --use || docker buildx use multiarch
+            docker buildx inspect --bootstrap
+      - run:
+          name: Build and push multi-arch release
           command: |
             cp src/main/resources/application.conf.example ./src/main/resources/application.conf
-            docker build -t openmbee/flexo-mms-layer1-service:latest .
-      - run:
-          name: Tag docker image
-          command: docker tag openmbee/flexo-mms-layer1-service:latest openmbee/flexo-mms-layer1-service:${CIRCLE_TAG}
-      - run:
-          name: Deploy release to dockerhub
-          command: docker push openmbee/flexo-mms-layer1-service:${CIRCLE_TAG}
-      - run:
-          name: Deploy release as latest to dockerhub
-          command: docker push openmbee/flexo-mms-layer1-service:latest
+            docker buildx build --platform linux/amd64,linux/arm64 \
+              -t openmbee/flexo-mms-layer1-service:${CIRCLE_TAG} \
+              -t openmbee/flexo-mms-layer1-service:latest \
+              --push .
 
 workflows:
   version: 2
