@@ -5,7 +5,6 @@ import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.server.testing.ApplicationTestBuilder
-import org.apache.jena.rdf.model.Resource
 import org.apache.jena.sparql.exec.http.UpdateExecutionHTTP
 import org.openmbee.flexo.mms.util.*
 
@@ -52,14 +51,14 @@ class LeafScopePolicyTest : RefAny() {
         policyId: String,
         userPath: String,
         scopePath: String,
-        roles: List<Resource>,
+        roles: List<String>,
     ): HttpResponse {
         return httpPut("/policies/$policyId", true) {
             setTurtleBody(withAllTestPrefixes("""
                 <>
                     mms:subject <${localIri(userPath)}> ;
                     mms:scope <${localIri(scopePath)}> ;
-                    mms:role ${roles.joinToString(", ") { "<${it.uri}>" }} ;
+                    mms:role ${roles.joinToString(", ") { "<$it>" }} ;
                     .
             """.trimIndent()))
         }.apply {
@@ -104,7 +103,7 @@ class LeafScopePolicyTest : RefAny() {
                     policyId = "BobAdminBranchA",
                     userPath = "/users/$testUsername",
                     scopePath = branchAPath,
-                    roles = listOf(MMS_OBJECT.ROLE.AdminBranch),
+                    roles = listOf(Role.ADMIN_BRANCH.iri),
                 )
 
                 // bob can patch branch-a
@@ -141,7 +140,7 @@ class LeafScopePolicyTest : RefAny() {
                     policyId = "BobAdminScratchX",
                     userPath = "/users/$testUsername",
                     scopePath = scratchPath,
-                    roles = listOf(MMS_OBJECT.ROLE.AdminScratch),
+                    roles = listOf(Role.ADMIN_SCRATCH.iri),
                 )
 
                 // bob can replace the scratch
@@ -164,7 +163,7 @@ class LeafScopePolicyTest : RefAny() {
                     policyId = "BobReadDemoOrg",
                     userPath = "/users/$testUsername",
                     scopePath = demoOrgPath,
-                    roles = listOf(MMS_OBJECT.ROLE.ReadOrg),
+                    roles = listOf(MMS_OBJECT.ROLE.ReadOrg.uri),
                 )
 
                 // bob can GET the org directly (not just via the list endpoint)

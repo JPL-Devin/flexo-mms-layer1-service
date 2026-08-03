@@ -112,6 +112,13 @@ enum class Role(val id: String) {
 }
 
 /**
+ * The IRI of this role as referenced by policies, matching what [autoPolicy] emits
+ * (`mms-object:Role.{id}`) and what the cluster init definitions declare.
+ */
+val Role.iri: String
+    get() = "${SPARQL_PREFIXES["mms-object"]}Role.$id"
+
+/**
  * Generates the pattern that looks up the class of a candidate policy scope IRI.
  *
  * Orgs, repos, and collections are typed in `m-graph:Cluster`, but repo-nested resources
