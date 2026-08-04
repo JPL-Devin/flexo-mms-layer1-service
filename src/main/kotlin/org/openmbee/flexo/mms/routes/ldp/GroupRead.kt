@@ -28,9 +28,7 @@ private val SPARQL_BGP_GROUP: (Boolean, Boolean) -> String = { allGroups, allDat
         """.reindent(2) iff allData}
     }
     
-    ${permittedActionSparqlBgp(Permission.READ_GROUP, Scope.CLUSTER,
-        if(allGroups) "^mg:?$".toRegex() else null,
-        if(allGroups) "" else null)}
+    ${permittedActionSparqlBgp(Permission.READ_GROUP, if(allGroups) Scope.CLUSTER else Scope.GROUP)}
 """}
 
 // construct graph of all relevant group metadata
