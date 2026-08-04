@@ -12,6 +12,19 @@ mms {
         gzip-literals-larger-than-kib = 512
         gzip-literals-larger-than-kib = ${?FLEXO_MMS_GZIP_LITERALS_LARGER_THAN_KIB}
 
+        # commit finalization mode: "auto" (default) probes the quad-store once for transactional
+        # multi-operation update support and uses a single atomic request when supported;
+        # "always" forces the single-request path; "never" always uses two sequential requests
+        # (snapshot first, then branch pointer)
+        atomic-commit = "auto"
+        atomic-commit = ${?FLEXO_MMS_ATOMIC_COMMIT}
+
+        # age in seconds after which an abandoned ref-modifying transaction (e.g. from a crashed
+        # instance) may be deleted and its mutex taken over by a new request; 0 disables takeover.
+        # defaults to request-timeout plus a safety margin when unset
+        # mutex-ttl-seconds = 2100
+        mutex-ttl-seconds = ${?FLEXO_MMS_MUTEX_TTL_SECONDS}
+
         # request timeout in seconds for requests to backend quadstore (default 30 min)
         request-timeout = 1800
         request-timeout = ${?FLEXO_MMS_SPARQL_REQUEST_TIMEOUT}
