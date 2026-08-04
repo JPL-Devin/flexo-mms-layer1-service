@@ -338,7 +338,7 @@ fun AnyLayer1Context.genCommitUpdate(delete: String="", insert: String="", where
 /**
  *   Used by ModelLoad to get difference between current staging graph and newly loaded graph in the form of delete/insert graphs
  */
-fun AnyLayer1Context.genDiffUpdate(diffTriples: String="", conditions: ConditionsGroup?=null, rawWhere: String?=null): String {
+fun AnyLayer1Context.genDiffUpdate(diffTriples: String="", conditions: ConditionsGroup?=null, rawWhere: String?=null, explicitDiffIri: String?=null): String {
     return buildSparqlUpdate {
         insert {
             subtxn("diff", mapOf(
@@ -352,40 +352,49 @@ fun AnyLayer1Context.genDiffUpdate(diffTriples: String="", conditions: Condition
 
             raw("""
                 graph ?insGraph {
-                    ?ins_s ?ins_p ?ins_o .    
+                    ?ins_s ?ins_p ?ins_o .
                 }
-                
+
                 graph ?delGraph {
                     ?del_s ?del_p ?del_o .
                 }
-                
+
                 graph mor-graph:Metadata {
                     ?diff a mms:Diff ;
                         mms:id ?diffId ;
+                        mms:etag ?diffId ;
                         mms:createdBy mu: ;
                         mms:srcCommit ?srcCommit ;
                         mms:dstCommit ?dstCommit ;
                         mms:insGraph ?insGraph ;
                         mms:delGraph ?delGraph .
+
+                    $diffTriples
                 }
             """)
         }
         where {
             raw("""
+                ${conditions?.requiredPatterns()?.joinToString("\n") ?: ""}
+
                 ${rawWhere?: ""}
-                
+
                 bind(
                     sha256(
                         concat(str(?dstCommit), "\n", str(?srcCommit))
                     ) as ?diffId
                 )
-                
-                bind(
-                    iri(
-                        concat(str(?dstCommit), "/diffs/", ?diffId)
-                    ) as ?diff
-                )
-                
+
+                ${if(explicitDiffIri != null) """
+                    bind(<$explicitDiffIri> as ?diff)
+                """ else """
+                    bind(
+                        iri(
+                            concat(str(?dstCommit), "/diffs/", ?diffId)
+                        ) as ?diff
+                    )
+                """}
+
                 bind(
                     iri(
                         concat(str(mor-graph:), "Diff.Ins.", ?diffId)
@@ -515,6 +524,40 @@ suspend fun AnyLayer1Context.diffAndFinalizeCommit(dstGraphIri: String, srcGraph
     val deleteModel = parseModelStripPrefixes(RdfContentTypes.Turtle, deleteDataResponseText)
     // empty delta (no changes)
     if (insertModel.isEmpty && deleteModel.isEmpty) {
+        // remove the diff metadata and auto-created policy inserted by the diff update above;
+        // the commit this diff describes will never be created, so leaving them would accrete a
+        // dangling mms:Diff and an orphaned policy on every no-op update
+        executeSparqlUpdate("""
+            delete {
+                graph mor-graph:Metadata {
+                    ?diff ?diff_p ?diff_o .
+                }
+                graph m-graph:AccessControl.Policies {
+                    ?createdPolicy ?createdPolicy_p ?createdPolicy_o .
+                }
+                graph m-graph:Transactions {
+                    mt: mms:createdPolicy ?createdPolicy .
+                }
+            }
+            where {
+                graph mor-graph:Metadata {
+                    ?diff a mms:Diff ;
+                        mms:dstCommit morc: ;
+                        ?diff_p ?diff_o .
+                }
+                optional {
+                    graph m-graph:Transactions {
+                        mt: mms:createdPolicy ?createdPolicy .
+                    }
+                    graph m-graph:AccessControl.Policies {
+                        ?createdPolicy ?createdPolicy_p ?createdPolicy_o .
+                    }
+                }
+            }
+        """) {
+            prefixes(prefixes)
+        }
+
         // locate branch node
         val branchNode = diffConstructModel.createResource(prefixes["morb"])
         // get its etag value

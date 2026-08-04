@@ -5,12 +5,15 @@ import io.ktor.server.response.*
 import org.openmbee.flexo.mms.*
 import org.openmbee.flexo.mms.server.LdpDcLayer1Context
 import org.openmbee.flexo.mms.server.LdpPostResponse
+import org.openmbee.flexo.mms.routes.sparql.deleteTransaction
 import org.openmbee.flexo.mms.routes.sparql.genDiffUpdate
 import java.security.MessageDigest
 
 
-// default starting conditions for any calls to create a lock
-private val DEFAULT_CONDITIONS = COMMIT_CRUD_CONDITIONS.append {
+// default starting conditions for any calls to create a diff. the repo must exist; the src and
+// dst refs are validated by appendSrcRef()/appendDstRef() (a diff request has no commit in its
+// path, so commit-level conditions do not apply here)
+private val DEFAULT_CONDITIONS = REPO_CRUD_CONDITIONS.append {
     // require that the user has the ability to create diffs on a repo-level scope
     permit(Permission.CREATE_DIFF, Scope.REPO)
 
@@ -46,7 +49,7 @@ suspend fun LdpDcLayer1Context<LdpPostResponse>.createDiff() {
     var createDiffUserDataTriples = ""
 
     // process RDF body from user about this new diff
-    filterIncomingStatements("morl") {
+    filterIncomingStatements("mord") {
         // relative to this diff node
         diffNode().apply {
             // assert cardinality for src and dst refs
@@ -73,26 +76,26 @@ suspend fun LdpDcLayer1Context<LdpPostResponse>.createDiff() {
     // extend the default conditions with requirements for user-specified src and dst refs
     val localConditions = DEFAULT_CONDITIONS.appendSrcRef().appendDstRef()
 
-    // prep SPARQL UPDATE string
+    // prep SPARQL UPDATE string; the diff is minted at the repo-addressed IRI from the request
     val updateString = genDiffUpdate(createDiffUserDataTriples, localConditions, """
         graph mor-graph:Metadata {
             # select the commit pointed to by the source ref
             ?srcRef mms:commit ?srcCommit .
-            
+
             # locate its corresponding snapshot and model graph
             ?srcCommit ^mms:commit/mms:snapshot ?srcSnapshot .
-            ?srcSnapshot a mms:Model ; 
+            ?srcSnapshot a mms:Model ;
                 mms:graph ?srcGraph  .
-            
-            # select the commit pointed to by the destination ref 
+
+            # select the commit pointed to by the destination ref
             ?dstRef mms:commit ?dstCommit .
-            
+
             # locate its corresponding snapshot and model graph
             ?dstCommit ^mms:commit/mms:snapshot ?dstSnapshot .
-            ?dstSnapshot a mms:Model ; 
+            ?dstSnapshot a mms:Model ;
                 mms:graph ?dstGraph .
         }
-    """)
+    """, explicitDiffIri=prefixes["mord"]!!)
 
     // execute update
     executeSparqlUpdate(updateString) {
@@ -141,21 +144,12 @@ suspend fun LdpDcLayer1Context<LdpPostResponse>.createDiff() {
     // check that the user-supplied HTTP preconditions were met
     handleEtagAndPreconditions(constructModel, prefixes["mord"])
 
+    // provide location of new resource
+    call.response.header(HttpHeaders.Location, prefixes["mord"]!!)
+
     // respond
-    call.respondText(constructResponseText, RdfContentTypes.Turtle)
+    call.respondText(constructResponseText, RdfContentTypes.Turtle, HttpStatusCode.Created)
 
-    // delete transaction
-    run {
-        // submit update
-        val dropResponseText = executeSparqlUpdate("""
-            delete where {
-                graph m-graph:Transactions {
-                    mt: ?p ?o .
-                }
-            }
-        """)
-
-        // log response
-        log.info(dropResponseText)
-    }
+    // delete transaction (including the mt:diff subtransaction created by the diff update)
+    deleteTransaction()
 }
