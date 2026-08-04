@@ -300,6 +300,13 @@ suspend fun LdpDcLayer1Context<LdpPostResponse>.squashCommitsImpl() {
                     ?ref mms:commit ?intermediateCommit .
                     filter(?intermediateCommit in ($intermediateFilter))
                     filter(?ref not in (<$srcLockRef>, <$dstLockRef>))
+
+                    # exempt auto-created commit locks (mor-lock:Commit.* with no user etag);
+                    # every commit gets one, and the squash deletes them along with the commits
+                    filter(!(
+                        strstarts(str(?ref), "${prefixes["mor-lock"]}Commit.")
+                        && !exists { ?ref mms:etag ?refUserEtag }
+                    ))
                 }
             }
         """.trimIndent()
@@ -378,16 +385,76 @@ suspend fun LdpDcLayer1Context<LdpPostResponse>.squashCommitsImpl() {
         */
         val localConditions = SQUASH_CONDITIONS
 
-        // Build delete clauses for intermediate commits
-        val intermediateDeletePatterns = if (intermediateCommitIris.isNotEmpty()) {
-            val commitPatterns = intermediateCommitIris.mapIndexed { idx, iri ->
-                "<$iri> ?ic_p_$idx ?ic_o_$idx ."
+        /*
+        collect the auto-created commit locks on the intermediate commits, along with their
+        snapshots and snapshot graphs; the squash owns their cleanup since the commits they
+        reference are being destroyed. user-created refs on intermediates were already rejected
+        by the refCheck above, so these snapshots have no other referents.
+        */
+        var autoLockIris = listOf<String>()
+        var autoSnapshotIris = listOf<String>()
+        var autoSnapshotGraphIris = listOf<String>()
+        if (intermediateCommitIris.isNotEmpty()) {
+            val autoLockQuery = """
+                select ?autoLock ?snapshot ?snapshotGraph where {
+                    graph mor-graph:Metadata {
+                        ?autoLock a mms:Lock ;
+                            mms:commit ?intermediateCommit .
+                        filter(?intermediateCommit in ($intermediateFilter))
+                        filter(strstarts(str(?autoLock), "${prefixes["mor-lock"]}Commit."))
+                        filter not exists { ?autoLock mms:etag ?userEtag }
+
+                        optional {
+                            ?autoLock mms:snapshot ?snapshot .
+                            ?snapshot mms:graph ?snapshotGraph .
+                        }
+                    }
+                }
+            """.trimIndent()
+
+            val autoLockResult = executeSparqlSelectOrAsk(autoLockQuery) {
+                prefixes(prefixes)
             }
-            val dataPatterns = intermediateDataIris.mapIndexed { idx, iri ->
-                "<$iri> ?id_p_$idx ?id_o_$idx ."
-            }
-            (commitPatterns + dataPatterns).joinToString("\n                    ")
-        } else ""
+            val autoLockBindings = parseSparqlResultsJsonSelect(autoLockResult)
+            autoLockIris = autoLockBindings.mapNotNull {
+                it["autoLock"]?.jsonObject?.get("value")?.jsonPrimitive?.content
+            }.distinct()
+            autoSnapshotIris = autoLockBindings.mapNotNull {
+                it["snapshot"]?.jsonObject?.get("value")?.jsonPrimitive?.content
+            }.distinct()
+            autoSnapshotGraphIris = autoLockBindings.mapNotNull {
+                it["snapshotGraph"]?.jsonObject?.get("value")?.jsonPrimitive?.content
+            }.distinct()
+        }
+
+        // Build per-node delete patterns for intermediate commits, their data, and the
+        // auto-created locks/snapshots being garbage-collected
+        val intermediateNodePatterns = intermediateCommitIris.mapIndexed { idx, iri ->
+            "<$iri> ?ic_p_$idx ?ic_o_$idx ."
+        } + intermediateDataIris.mapIndexed { idx, iri ->
+            "<$iri> ?id_p_$idx ?id_o_$idx ."
+        } + autoLockIris.mapIndexed { idx, iri ->
+            "<$iri> ?al_p_$idx ?al_o_$idx ."
+        } + autoSnapshotIris.mapIndexed { idx, iri ->
+            "<$iri> ?as_p_$idx ?as_o_$idx ."
+        }
+
+        // registry entries of the snapshot graphs being dropped
+        val registryNodePatterns = autoSnapshotGraphIris.mapIndexed { idx, iri ->
+            "<$iri> ?ag_p_$idx ?ag_o_$idx ."
+        }
+
+        val intermediateDeletePatterns = intermediateNodePatterns.joinToString("\n                    ")
+
+        // each node gets its own union branch in the WHERE clause so the solution space is the
+        // SUM of the nodes' triple counts; joining them in one basic graph pattern would make it
+        // the cross-product, which grows exponentially with the number of squashed commits and
+        // stalls the quad-store beyond a handful of commits
+        val intermediateWhereUnion = (intermediateNodePatterns.map {
+            "{ graph mor-graph:Metadata { $it } }"
+        } + registryNodePatterns.map {
+            "{ graph m-graph:Graphs { $it } }"
+        }).joinToString(" union ")
 
         // Build delete clauses for old patch data
         val deleteOldDataClauses = mutableListOf(
@@ -416,6 +483,13 @@ suspend fun LdpDcLayer1Context<LdpPostResponse>.squashCommitsImpl() {
                     // delete old patch/insGraph/delGraph
                     raw(deleteOldDataClauses.joinToString("\n                    "))
                 }
+
+                // delete registry entries of the snapshot graphs being dropped
+                if (registryNodePatterns.isNotEmpty()) {
+                    graph("m-graph:Graphs") {
+                        raw(registryNodePatterns.joinToString("\n                    "))
+                    }
+                }
             }
             insert {
                 // record the transaction for validation
@@ -439,11 +513,9 @@ suspend fun LdpDcLayer1Context<LdpPostResponse>.squashCommitsImpl() {
                 // enforce authorization conditions (org/repo existence, UPDATE_COMMIT)
                 raw(*localConditions.requiredPatterns())
 
-                // match intermediate commit triples for deletion
-                if (intermediateDeletePatterns.isNotEmpty()) {
-                    graph("mor-graph:Metadata") {
-                        raw(intermediateDeletePatterns)
-                    }
+                // match intermediate commit triples for deletion (one union branch per node)
+                if (intermediateWhereUnion.isNotEmpty()) {
+                    raw(intermediateWhereUnion)
                 }
 
                 // match old patch data for deletion
@@ -513,6 +585,8 @@ suspend fun LdpDcLayer1Context<LdpPostResponse>.squashCommitsImpl() {
         */
         val graphsToClean = mutableListOf<String>()
         graphsToClean.addAll(intermediateGraphsToClean)
+        // model graphs of the auto-created locks garbage-collected by this squash
+        graphsToClean.addAll(autoSnapshotGraphIris)
         // also drop old ins/del graphs from the newer commit's previous data if they differ from new ones
         if (oldInsGraphIri != null && oldInsGraphIri != diffInsGraphIri) {
             graphsToClean.add(oldInsGraphIri)
@@ -526,14 +600,25 @@ suspend fun LdpDcLayer1Context<LdpPostResponse>.squashCommitsImpl() {
             executeSparqlUpdate(dropStatements)
         }
     } finally {
-        //TODO missing subtxn squash
-        executeSparqlUpdate("""
-            delete where {  
-                graph m-graph:Transactions {
-                    mt: ?p ?o .
+        // delete the base transaction AND the mt:squash subtransaction created by the squash
+        // update; guarded so a failure here cannot mask the original exception or prevent the
+        // diff graph cleanup below
+        try {
+            executeSparqlUpdate("""
+                delete where {
+                    graph m-graph:Transactions {
+                        mt: ?p ?o .
+                    }
+                } ;
+                delete where {
+                    graph m-graph:Transactions {
+                        mt:squash ?sq_p ?sq_o .
+                    }
                 }
-            }
-        """)
+            """)
+        } catch (cleanup: Exception) {
+            log.warn("Failed to delete squash transaction records: ${cleanup.message}")
+        }
         // only clean up temporary diff graphs on failure — on success they are
         // stored as the newer commit's mms:insGraph/mms:delGraph
         if (!squashSucceeded) {
