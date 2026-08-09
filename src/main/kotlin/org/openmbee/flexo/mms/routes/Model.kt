@@ -114,7 +114,11 @@ private fun AnyLayer1Context.mutexAcquisitionPatterns(ref: String): String {
                     ?__mms_staleTxn mms:created ?__mms_staleTxnCreated .
                 }
                 filter(!bound(?__mms_staleTxnCreated) || ?__mms_staleTxnCreated < "$staleThreshold"^^xsd:dateTime)
-                ?__mms_staleTxn ?__mms_staleTxn_p ?__mms_staleTxn_o .
+
+                # the transaction node itself and any sub-transaction record it created (e.g.
+                # <txn>diff, <txn>sequence), whose IRIs are all prefixed by the transaction IRI
+                ?__mms_staleTxnNode ?__mms_staleTxn_p ?__mms_staleTxn_o .
+                filter(strstarts(str(?__mms_staleTxnNode), str(?__mms_staleTxn)))
             }
         }
 
@@ -130,14 +134,251 @@ private fun AnyLayer1Context.mutexAcquisitionPatterns(ref: String): String {
     """
 }
 
-// deletes the triples of an abandoned mutex-holding transaction matched by mutexAcquisitionPatterns
+// deletes the triples of an abandoned mutex-holding transaction (and its sub-transaction
+// records) matched by mutexAcquisitionPatterns
 private const val SPARQL_DELETE_STALE_TXN = """
     graph m-graph:Transactions {
-        ?__mms_staleTxn ?__mms_staleTxn_p ?__mms_staleTxn_o .
+        ?__mms_staleTxnNode ?__mms_staleTxn_p ?__mms_staleTxn_o .
     }
 """
 
+/**
+ * Artifacts an abandoned transaction created before its request died, gathered before its
+ * transaction record is deleted so they can be reclaimed once the mutex has been stolen.
+ */
+private data class StaleTxnArtifacts(
+    val txnIri: String,
+    val txnId: String,
+    val policies: Set<String>,
+    val diffGraphs: Set<String>,
+)
+
+/**
+ * Finds transactions holding the given ref's mutex that are old enough to be considered abandoned
+ * and collects what they created: policies recorded through mms:createdPolicy and the ins/del
+ * graphs of their diff sub-transaction. Transactions that already marked success are excluded:
+ * their commit landed, so everything they created is live.
+ */
+private suspend fun AnyLayer1Context.collectStaleTxnArtifacts(ref: String): List<StaleTxnArtifacts> {
+    val ttlSeconds = call.application.mutexTtlSeconds
+    if(ttlSeconds <= 0L) return emptyList()
+
+    val staleThreshold = java.time.Instant.now().minusSeconds(ttlSeconds).toString()
+
+    val bindings = parseSparqlResultsJsonSelect(executeSparqlSelectOrAsk("""
+        select ?staleTxn ?policy ?insGraph ?delGraph where {
+            graph m-graph:Transactions {
+                ?staleTxn a mms:Transaction ;
+                    mms-txn:mutex ${ref}: .
+
+                optional {
+                    ?staleTxn mms:created ?staleTxnCreated .
+                }
+                filter(!bound(?staleTxnCreated) || ?staleTxnCreated < "$staleThreshold"^^xsd:dateTime)
+
+                # a transaction that reached success created live data, not orphans
+                filter not exists {
+                    ?staleTxn mms-txn:success true .
+                }
+
+                optional {
+                    ?staleTxn mms:createdPolicy ?policy .
+                }
+
+                # sub-transaction records are named by suffixing the transaction IRI
+                optional {
+                    ?subTxn mms-txn:insGraph ?insGraph ;
+                        mms-txn:delGraph ?delGraph .
+                    filter(strstarts(str(?subTxn), str(?staleTxn)))
+                }
+            }
+        }
+    """) { prefixes(prefixes) })
+
+    val txnPrefix = prefixes["mt"]?.let { "${it.substringBeforeLast('/')}/" } ?: return emptyList()
+
+    return bindings.mapNotNull { binding ->
+        val value = { key: String -> binding[key]?.jsonObject?.get("value")?.jsonPrimitive?.content }
+        value("staleTxn")?.let { Triple(it, value("policy"), listOfNotNull(value("insGraph"), value("delGraph"))) }
+    }.groupBy { it.first }.map { (txnIri, rows) ->
+        StaleTxnArtifacts(
+            txnIri = txnIri,
+            txnId = txnIri.removePrefix(txnPrefix),
+            policies = rows.mapNotNull { it.second }.toSet(),
+            diffGraphs = rows.flatMap { it.third }.toSet(),
+        )
+    }
+}
+
+/**
+ * Best-effort cleanup of everything an abandoned transaction left behind, run after its mutex was
+ * stolen. Each transaction is only reclaimed once its record is confirmed gone, so a request that
+ * lost the mutex race does not delete artifacts of a transaction still considered live.
+ */
+private suspend fun AnyLayer1Context.reclaimStaleTxnArtifacts(staleTxns: List<StaleTxnArtifacts>) {
+    for(artifacts in staleTxns) {
+        try {
+            val recordRemains = parseSparqlResultsJsonAsk(executeSparqlSelectOrAsk("""
+                ask {
+                    graph m-graph:Transactions {
+                        <${artifacts.txnIri}> ?p ?o .
+                    }
+                }
+            """) { prefixes(prefixes) })
+            if(recordRemains) continue
+
+            // dangling diff metadata and the diff graphs it described
+            for(graphIri in artifacts.diffGraphs) {
+                executeSparqlUpdate("""
+                    delete {
+                        graph mor-graph:Metadata {
+                            ?diff ?diff_p ?diff_o .
+                        }
+                    }
+                    where {
+                        graph mor-graph:Metadata {
+                            ?diff a mms:Diff ;
+                                ?diff_p ?diff_o .
+                            { ?diff mms:insGraph <$graphIri> } union { ?diff mms:delGraph <$graphIri> }
+                        }
+                    }
+                """) { prefixes(prefixes) }
+
+                dropGraphIfUnreferenced(graphIri)
+            }
+
+            // policies of resources the dead request never finished creating
+            for(policyIri in artifacts.policies) {
+                executeSparqlUpdate("""
+                    delete {
+                        graph m-graph:AccessControl.Policies {
+                            <$policyIri> ?policy_p ?policy_o .
+                        }
+                    }
+                    where {
+                        graph m-graph:AccessControl.Policies {
+                            <$policyIri> ?policy_p ?policy_o ;
+                                mms:scope ?scope .
+                        }
+
+                        # keep the policy if the resource it scopes survived the crashed request
+                        filter not exists {
+                            graph mor-graph:Metadata {
+                                ?scope ?scope_p ?scope_o .
+                            }
+                        }
+                    }
+                """) { prefixes(prefixes) }
+            }
+
+            // write-ahead snapshot of a commit that never landed
+            prefixes["mor-lock"]?.let { reclaimAutoCommitLock("${it}Commit.${artifacts.txnId}") }
+
+            // graph a model load staged its payload into
+            prefixes["mor-graph"]?.let { executeSparqlUpdate("drop silent graph <${it}Load.${artifacts.txnId}>") }
+        }
+        catch(e: Exception) {
+            log.warn("Failed to reclaim artifacts of abandoned transaction <${artifacts.txnIri}>: ${e.message}")
+        }
+    }
+}
+
+/**
+ * Deletes an auto-created commit lock, its snapshot metadata and model graph, but only if the
+ * commit it snapshots does not exist — i.e. the commit was never created, so nothing can
+ * materialize from it.
+ */
+private suspend fun AnyLayer1Context.reclaimAutoCommitLock(lockIri: String) {
+    val bindings = parseSparqlResultsJsonSelect(executeSparqlSelectOrAsk("""
+        select ?modelGraph where {
+            graph mor-graph:Metadata {
+                <$lockIri> a mms:Lock ;
+                    mms:commit ?commit .
+
+                optional {
+                    <$lockIri> mms:snapshot ?snapshot .
+                    ?snapshot mms:graph ?modelGraph .
+                }
+
+                # the commit was never created, so the snapshot is unreachable
+                filter not exists {
+                    ?commit a mms:Commit .
+                }
+
+                # user-created locks carry an etag; auto-created commit locks do not
+                filter not exists {
+                    <$lockIri> mms:etag ?etag .
+                }
+            }
+
+            filter not exists {
+                graph m-graph:Cluster {
+                    ?collection a mms:Collection ;
+                        mms:collects <$lockIri> .
+                }
+            }
+        }
+    """) { prefixes(prefixes) })
+
+    if(bindings.isEmpty()) return
+
+    executeSparqlUpdate("""
+        delete {
+            graph mor-graph:Metadata {
+                <$lockIri> ?lock_p ?lock_o .
+                ?snapshot ?snapshot_p ?snapshot_o .
+            }
+        }
+        where {
+            graph mor-graph:Metadata {
+                <$lockIri> ?lock_p ?lock_o .
+
+                optional {
+                    <$lockIri> mms:snapshot ?snapshot .
+                    ?snapshot ?snapshot_p ?snapshot_o .
+
+                    filter not exists {
+                        ?otherLock mms:snapshot ?snapshot .
+                        filter(?otherLock != <$lockIri>)
+                    }
+                }
+            }
+        }
+    """) { prefixes(prefixes) }
+
+    bindings.mapNotNull { it["modelGraph"]?.jsonObject?.get("value")?.jsonPrimitive?.content }
+        .toSet()
+        .forEach { dropGraphIfUnreferenced(it) }
+}
+
+/**
+ * Drops the given graph and its m-graph:Graphs registry entry, unless repo metadata still
+ * references it.
+ */
+private suspend fun AnyLayer1Context.dropGraphIfUnreferenced(graphIri: String) {
+    val stillReferenced = parseSparqlResultsJsonAsk(executeSparqlSelectOrAsk("""
+        ask {
+            graph mor-graph:Metadata {
+                ?s ?p <$graphIri> .
+            }
+        }
+    """) { prefixes(prefixes) })
+
+    if(stillReferenced) return
+
+    executeSparqlUpdate("drop silent graph <$graphIri>")
+    executeSparqlUpdate("""
+        delete where {
+            graph m-graph:Graphs {
+                <$graphIri> ?p ?o .
+            }
+        }
+    """) { prefixes(prefixes) }
+}
+
 suspend fun AnyLayer1Context.createBranchModifyingTransaction(conditions: ConditionsGroup): String {
+    val staleTxns = collectStaleTxnArtifacts("morb")
+
     val update = buildSparqlUpdate {
         delete {
             raw(SPARQL_DELETE_STALE_TXN)
@@ -153,7 +394,11 @@ suspend fun AnyLayer1Context.createBranchModifyingTransaction(conditions: Condit
             raw(conditions.requiredPatterns().joinToString("\n"))
         }
     }
-    return executeSparqlUpdate(update)
+    val response = executeSparqlUpdate(update)
+
+    reclaimStaleTxnArtifacts(staleTxns)
+
+    return response
 }
 
 /**
@@ -190,6 +435,8 @@ suspend fun AnyLayer1Context.validateBranchModifyingTransaction(conditions: Cond
  *   ?__mms_commitSource or ?_refSource should be part of the conditions pattern
  */
 suspend fun AnyLayer1Context.createRefCreatingTransaction(conditions: ConditionsGroup, ref: String, updateSetup: (SparqlParameterizer.() -> SparqlParameterizer)? = null): String {
+    val staleTxns = collectStaleTxnArtifacts(ref)
+
     val update = buildSparqlUpdate {
         delete {
             raw(SPARQL_DELETE_STALE_TXN)
@@ -205,7 +452,7 @@ suspend fun AnyLayer1Context.createRefCreatingTransaction(conditions: Conditions
             raw(conditions.requiredPatterns().joinToString("\n"))
         }
     }
-    return executeSparqlUpdate(update) {
+    val response = executeSparqlUpdate(update) {
         prefixes(prefixes)
         // replace IRI substitution variables
         iri(
@@ -214,6 +461,10 @@ suspend fun AnyLayer1Context.createRefCreatingTransaction(conditions: Conditions
             else "__mms_commitSource" to commitSource!!,
         )
     }
+
+    reclaimStaleTxnArtifacts(staleTxns)
+
+    return response
 }
 
 /**
