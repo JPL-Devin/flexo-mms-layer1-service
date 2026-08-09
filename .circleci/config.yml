@@ -77,7 +77,7 @@ jobs:
     steps:
       - setup_remote_docker:
           docker_layer_caching: true
-          version: 20.10.18
+          version: default
       - attach_workspace:
           at: ~/
       - run:
@@ -86,6 +86,7 @@ jobs:
       - run:
           name: Create multi-arch builder
           command: |
+            docker run --privileged --rm tonistiigi/binfmt:qemu-v9.2.2@sha256:1b804311fe87047a4c96d38b4b3ef6f62fca8cd125265917a9e3dc3c996c39e6 --install arm64
             docker buildx create --name multiarch --use || docker buildx use multiarch
             docker buildx inspect --bootstrap
       - run:
@@ -108,7 +109,7 @@ jobs:
     steps:
       - setup_remote_docker:
           docker_layer_caching: true
-          version: 20.10.18
+          version: default
       - attach_workspace:
           at: ~/
       - checkout
@@ -118,6 +119,7 @@ jobs:
       - run:
           name: Create multi-arch builder
           command: |
+            docker run --privileged --rm tonistiigi/binfmt:qemu-v9.2.2@sha256:1b804311fe87047a4c96d38b4b3ef6f62fca8cd125265917a9e3dc3c996c39e6 --install arm64
             docker buildx create --name multiarch --use || docker buildx use multiarch
             docker buildx inspect --bootstrap
       - run:
@@ -134,7 +136,7 @@ jobs:
     steps:
       - setup_remote_docker:
           docker_layer_caching: true
-          version: 20.10.18
+          version: default
       - attach_workspace:
           at: ~/
       - run:
@@ -143,6 +145,7 @@ jobs:
       - run:
           name: Create multi-arch builder
           command: |
+            docker run --privileged --rm tonistiigi/binfmt:qemu-v9.2.2@sha256:1b804311fe87047a4c96d38b4b3ef6f62fca8cd125265917a9e3dc3c996c39e6 --install arm64
             docker buildx create --name multiarch --use || docker buildx use multiarch
             docker buildx inspect --bootstrap
       - run:
