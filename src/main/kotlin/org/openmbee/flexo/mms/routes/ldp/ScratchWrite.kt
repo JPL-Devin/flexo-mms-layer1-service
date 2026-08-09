@@ -128,7 +128,10 @@ suspend fun <TResponseContext: LdpMutateResponse> LdpDcLayer1Context<TResponseCo
             }
         }
 
-        permit(permission, Scope.REPO)
+        // replacing an existing scratch may be authorized at scratch level (e.g. by the
+        // auto-created AdminScratch policy); creation requires repo-level rights since the
+        // scratch does not exist yet
+        permit(permission, if(replaceExisting) Scope.SCRATCH else Scope.REPO)
     }
 
     // prep SPARQL UPDATE string

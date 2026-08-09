@@ -155,7 +155,15 @@ suspend fun<TRequestContext: GenericRequest> Layer1Context<TRequestContext, Stor
 
     // not requesting data; done
     if(allData == false) {
-        call.respond(HttpStatusCode.NoContent)
+        // a specific artifact must exist for HEAD to succeed
+        if(allArtifacts == false) {
+            val headModel = parseConstructResponse(constructResponseText) {}
+            if(!headModel.getResource(prefixes["mora"]).hasProperty(MMS.contentType)) {
+                throw Http404Exception(call.request.path())
+            }
+        }
+
+        return call.respond(HttpStatusCode.NoContent)
     }
 
     // enumerate all artifacts
@@ -225,6 +233,11 @@ suspend fun<TRequestContext: GenericRequest> Layer1Context<TRequestContext, Stor
     // single artifact
     else {
         val artifactResource = model.getResource(prefixes["mora"])
+
+        // artifact does not exist
+        if(!artifactResource.hasProperty(MMS.contentType)) {
+            throw Http404Exception(call.request.path())
+        }
 
         // decode artifact
         val decoded = decodeArtifact(artifactResource)

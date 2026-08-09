@@ -86,4 +86,24 @@ val Application.requestTimeout: Long?
     get() = environment.config.propertyOrNull("mms.application.request-timeout")?.getString()?.toLongOrNull()
         ?.let { it * 1000 }
 
+/**
+ * Commit finalization mode. "auto" (default) probes the quad-store once for transactional
+ * multi-operation update support and sends the snapshot and branch-pointer updates as a single
+ * atomic request when supported; "always" forces the single-request path; "never" always uses
+ * two sequential requests (snapshot first, then branch pointer).
+ */
+val Application.atomicCommitMode: String
+    get() = environment.config.propertyOrNull("mms.application.atomic-commit")?.getString()?.ifEmpty { null }
+        ?: "auto"
+
+/**
+ * Age in seconds after which a ref-modifying transaction is considered abandoned (e.g. its
+ * request crashed before releasing the mutex) and may be deleted by a new request acquiring the
+ * same mutex. 0 disables stealing. Defaults to the triplestore request timeout plus a margin so
+ * a legitimately long-running request is never stolen from.
+ */
+val Application.mutexTtlSeconds: Long
+    get() = environment.config.propertyOrNull("mms.application.mutex-ttl-seconds")?.getString()?.toLongOrNull()
+        ?: (((requestTimeout ?: (30L * 60 * 1000)) / 1000) + 300)
+
 class AuthorizationRequiredException(message: String): Exception(message) {}

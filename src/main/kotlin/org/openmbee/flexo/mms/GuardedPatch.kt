@@ -49,10 +49,16 @@ suspend fun <TResponseContext: LdpMutateResponse> LdpDcLayer1Context<TResponseCo
         throw UpdateSyntaxException(parse)
     }
 
-    // normalize operations into delete/insert/where sections
+    // normalize operations into delete/insert/where sections; multiple operations accumulate and are
+    // merged into a single guarded update (all deletes apply before all inserts, and every operation's
+    // WHERE pattern must be satisfiable)
     var deleteBgpString = ""
     var insertBgpString = ""
     var whereString = ""
+
+    fun appendGroup(existing: String, addition: String): String {
+        return if(existing.isEmpty()) addition else "$existing\n$addition"
+    }
 
     // prepare quad filters
     val patternFilter = quadPatternFilter(baseIri)
@@ -65,24 +71,25 @@ suspend fun <TResponseContext: LdpMutateResponse> LdpDcLayer1Context<TResponseCo
         val sCxt = toSerializationContext()
         for(update in sparqlUpdateAst.operations) {
             when(update) {
-                is UpdateDataDelete -> deleteBgpString = asSparqlGroup(sCxt, update.quads, patternFilter)
-                is UpdateDataInsert -> insertBgpString = asSparqlGroup(sCxt, update.quads, patternFilter)
+                is UpdateDataDelete -> deleteBgpString = appendGroup(deleteBgpString, asSparqlGroup(sCxt, update.quads, patternFilter))
+                is UpdateDataInsert -> insertBgpString = appendGroup(insertBgpString, asSparqlGroup(sCxt, update.quads, patternFilter))
                 is UpdateDeleteWhere -> {
-                    deleteBgpString = asSparqlGroup(sCxt, update.quads, patternFilter)
-                    whereString = deleteBgpString
+                    val deleteWhereBgpString = asSparqlGroup(sCxt, update.quads, patternFilter)
+                    deleteBgpString = appendGroup(deleteBgpString, deleteWhereBgpString)
+                    whereString = appendGroup(whereString, deleteWhereBgpString)
                 }
                 is UpdateModify -> {
                     if(update.hasDeleteClause()) {
-                        deleteBgpString = asSparqlGroup(sCxt, update.deleteQuads, patternFilter)
+                        deleteBgpString = appendGroup(deleteBgpString, asSparqlGroup(sCxt, update.deleteQuads, patternFilter))
                     }
 
                     if(update.hasInsertClause()) {
-                        insertBgpString = asSparqlGroup(sCxt, update.insertQuads, patternFilter)
+                        insertBgpString = appendGroup(insertBgpString, asSparqlGroup(sCxt, update.insertQuads, patternFilter))
                     }
 
-                    whereString = asSparqlGroup(sCxt, update.wherePattern.apply {
+                    whereString = appendGroup(whereString, asSparqlGroup(sCxt, update.wherePattern.apply {
                         visit(NoQuadsElementVisitor)
-                    })
+                    }))
                 }
                 else -> throw UpdateOperationNotAllowedException("SPARQL ${update.javaClass.simpleName} not allowed here")
             }
@@ -106,10 +113,12 @@ suspend fun <TResponseContext: LdpMutateResponse> LdpDcLayer1Context<TResponseCo
             }
         }
 
-        // assert any HTTP preconditions supplied by the user
+        // assert any HTTP preconditions supplied by the user; bind the resource's etag in the same
+        // group so the injected filter/values patterns can constrain it
         assertPreconditions(this) {
             """
-                graph $graph {
+                graph $etagGraph {
+                    $objectKey: mms:etag ?__mms_etag .
                     $it
                 }
             """

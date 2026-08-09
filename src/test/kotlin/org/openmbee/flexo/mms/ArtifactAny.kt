@@ -105,6 +105,38 @@ open class ArtifactAny : RefAny() {
         /artifacts/{id} route - gets artifacts
         *********************************************/
 
+        "head an artifact by id" {
+            testApplication {
+                httpPost(artifactsPath) {
+                    header("Content-Type", "text/plain")
+                    setBody("foo")
+                }.apply {
+                    this shouldHaveStatus HttpStatusCode.Created
+
+                    val uri = getLocation(this.headers[HttpHeaders.Location].toString())
+                    httpHead(uri) {}.apply {
+                        this shouldHaveStatus HttpStatusCode.NoContent
+                    }
+                }
+            }
+        }
+
+        "head a non-existent artifact returns 404" {
+            testApplication {
+                httpHead("$artifactsPath/does-not-exist") {}.apply {
+                    this shouldHaveStatus HttpStatusCode.NotFound
+                }
+            }
+        }
+
+        "get a non-existent artifact returns 404" {
+            testApplication {
+                httpGet("$artifactsPath/does-not-exist") {}.apply {
+                    this shouldHaveStatus HttpStatusCode.NotFound
+                }
+            }
+        }
+
         "get an artifact by id - turtle" {
             testApplication {
                 httpPost(artifactsPath) {

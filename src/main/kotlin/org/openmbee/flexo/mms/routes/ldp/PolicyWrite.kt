@@ -113,9 +113,15 @@ private fun resolvePolicyScopeAuthorization(scopeUri: String, clusterUri: String
 }
 
 suspend fun <TResponseContext: LdpMutateResponse> LdpDcLayer1Context<TResponseContext>.createOrReplacePolicy() {
-    // parse the path params
-    parsePathParams {
-        policy(legal=true)
+    // parse the path params, unless the container POST handler already set the id from the slug
+    // (the container path has no {policyId} param to parse)
+    if(policyId == null) {
+        parsePathParams {
+            policy(legal=true)
+        }
+    }
+    else {
+        assertLegalId(policyId!!)
     }
 
     // captured for use after the body is parsed; the policy's target scope URI determines which
@@ -229,6 +235,10 @@ suspend fun <TResponseContext: LdpMutateResponse> LdpDcLayer1Context<TResponseCo
             }
         }
         where {
+            // when replacing, bind the existing policy's properties so the delete clause removes them
+            if(replaceExisting) {
+                existingPolicy()
+            }
             // assert the required conditions (e.g., access-control, existence, etc.)
             raw(*localConditions.requiredPatterns())
         }

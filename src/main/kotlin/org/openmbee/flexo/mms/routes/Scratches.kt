@@ -84,6 +84,8 @@ fun Route.crudScratch() {
                 appendPreconditions { values ->
                     """
                         graph mor-graph:Metadata {
+                            mors: mms:etag ?__mms_etag .
+
                             ${values.reindent(6)}
                         }
                     """

@@ -38,12 +38,15 @@ fun AnyLayer1Context.injectPreconditions(): String {
             }
         """ else ""}
         
-        ${if(ifNoneMatch != null) """
-            filter(?__mms_etag != ?__mms_etagNot)
-            values ?__mms_etagNot {
-                ${ifNoneMatch.etags.joinToString(" ") { escapeLiteral(it) }}
-            }
-        """ else ""}
+        ${if(ifNoneMatch != null) {
+            if(ifNoneMatch.isStar) """
+                # If-None-Match: * fails whenever the resource (and thus its etag) exists
+                filter(false)
+            """ else """
+                # fail if the current etag matches any of the given values
+                filter(?__mms_etag not in (${ifNoneMatch.etags.joinToString(", ") { escapeLiteral(it) }}))
+            """
+        } else ""}
     """
 }
 

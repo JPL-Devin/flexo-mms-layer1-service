@@ -26,22 +26,37 @@ typealias Layer1Handler<TRequestContext, TResponseContext> = suspend Layer1Conte
 typealias Layer1HandlerGeneric<TRequestContext> = suspend Layer1Context<TRequestContext, GenericResponse>.() -> Unit
 
 
-fun ApplicationCall.httpClient(timeoutOverrideMs: Long? = null): HttpClient {
-    return HttpClient(CIO) {
-        install(ContentNegotiation) {
-            register(RdfContentTypes.Turtle, TextConverter())
-            register(RdfContentTypes.TriG, TextConverter())
-            register(RdfContentTypes.NTriples, TextConverter())
-            register(RdfContentTypes.NQuads, TextConverter())
-            register(RdfContentTypes.RdfXml, TextConverter())
-            register(RdfContentTypes.JsonLd, TextConverter())
+private val SHARED_HTTP_CLIENT_KEY = AttributeKey<HttpClient>("flexo-mms.sharedHttpClient")
+
+/**
+ * Returns the application-wide HTTP client, creating it on first use. A single client instance is
+ * shared across all requests (creating one per request leaks selector threads and sockets since
+ * nothing closes it); it is closed when the application stops.
+ */
+fun ApplicationCall.httpClient(): HttpClient {
+    return application.attributes.computeIfAbsent(SHARED_HTTP_CLIENT_KEY) {
+        val client = HttpClient(CIO) {
+            install(ContentNegotiation) {
+                register(RdfContentTypes.Turtle, TextConverter())
+                register(RdfContentTypes.TriG, TextConverter())
+                register(RdfContentTypes.NTriples, TextConverter())
+                register(RdfContentTypes.NQuads, TextConverter())
+                register(RdfContentTypes.RdfXml, TextConverter())
+                register(RdfContentTypes.JsonLd, TextConverter())
+            }
+
+            engine {
+                requestTimeout = this@httpClient.application.requestTimeout
+                    ?: (30 * 60 * 1000) // default timeout of 30 minutes
+            }
         }
 
-        engine {
-            requestTimeout = timeoutOverrideMs
-                ?: this@httpClient.application.requestTimeout
-                ?: (30 * 60 * 1000) // default timeout of 30 minutes
+        // release the client's resources when the application shuts down
+        application.monitor.subscribe(ApplicationStopping) {
+            client.close()
         }
+
+        client
     }
 }
 

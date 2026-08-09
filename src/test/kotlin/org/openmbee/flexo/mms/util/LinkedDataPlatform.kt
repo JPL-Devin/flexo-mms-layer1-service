@@ -498,6 +498,118 @@ class LinkedDataPlatformDirectContainerTests(
             }
         }
 
+        "PATCH $resourcePath - SPARQL UPDATE: If-None-Match with a matching etag fails" {
+            testApplication {
+                val createdBase = resourceCreator()
+                setResource(createdBase)
+                val etag = createdBase.headers[HttpHeaders.ETag]!!
+                httpPatch(resourcePath) {
+                    header(HttpHeaders.IfNoneMatch, "\"$etag\", \"${UUID.randomUUID()}\"")
+                    setSparqlUpdateBody(withAllTestPrefixes("""
+                        insert data {
+                            $PATCH_INSERT_TRIPLES
+                        }
+                    """.trimIndent()))
+                }.apply {
+                    this shouldHaveStatus HttpStatusCode.PreconditionFailed
+                }
+            }
+        }
+
+        "PATCH $resourcePath - SPARQL UPDATE: If-None-Match with only non-matching etags succeeds" {
+            testApplication {
+                val createdBase = resourceCreator()
+                setResource(createdBase)
+                httpPatch(resourcePath) {
+                    header(HttpHeaders.IfNoneMatch, "\"${UUID.randomUUID()}\", \"${UUID.randomUUID()}\"")
+                    setSparqlUpdateBody(withAllTestPrefixes("""
+                        insert data {
+                            $PATCH_INSERT_TRIPLES
+                        }
+                    """.trimIndent()))
+                }.apply {
+                    validatePatchResponse(this)
+                }
+            }
+        }
+
+        "PATCH $resourcePath - SPARQL UPDATE: multiple INSERT DATA operations all apply" {
+            testApplication {
+                val createdBase = resourceCreator()
+                setResource(createdBase)
+                httpPatch(resourcePath) {
+                    setSparqlUpdateBody(withAllTestPrefixes("""
+                        insert data {
+                            $PATCH_INSERT_TRIPLES
+                        } ;
+                        insert data {
+                            <> foaf:mbox <mailto:flexo@openmbee.org> .
+                        }
+                    """.trimIndent()))
+                }.apply {
+                    this shouldHaveStatus HttpStatusCode.OK
+
+                    this includesTriples {
+                        subject(localIri(resourcePath)) {
+                            includes(
+                                FOAF.homepage exactly model.createResource("https://www.openmbee.org/"),
+                                FOAF.mbox exactly model.createResource("mailto:flexo@openmbee.org"),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        "PATCH $resourcePath - SPARQL UPDATE: DELETE DATA and INSERT DATA operations combine" {
+            testApplication {
+                val createdBase = resourceCreator()
+                setResource(createdBase)
+
+                // seed a triple for the multi-operation patch to delete
+                httpPatch(resourcePath) {
+                    setSparqlUpdateBody(withAllTestPrefixes("""
+                        insert data {
+                            $PATCH_INSERT_TRIPLES
+                        }
+                    """.trimIndent()))
+                }.apply {
+                    this shouldHaveStatus HttpStatusCode.OK
+                }
+
+                httpPatch(resourcePath) {
+                    setSparqlUpdateBody(withAllTestPrefixes("""
+                        delete data {
+                            $PATCH_INSERT_TRIPLES
+                        } ;
+                        insert data {
+                            <> foaf:mbox <mailto:flexo@openmbee.org> .
+                        } ;
+                        insert data {
+                            <> foaf:name "Flexo" .
+                        }
+                    """.trimIndent()))
+                }.apply {
+                    this shouldHaveStatus HttpStatusCode.OK
+
+                    this includesTriples {
+                        subject(localIri(resourcePath)) {
+                            includes(
+                                FOAF.mbox exactly model.createResource("mailto:flexo@openmbee.org"),
+                                FOAF.name exactly "Flexo",
+                            )
+                        }
+
+                        // the deleted triple must not survive the merged update
+                        model.contains(
+                            model.createResource(localIri(resourcePath)),
+                            FOAF.homepage
+                        ) shouldBe false
+                    }
+                }
+            }
+        }
+
         "PATCH $resourcePath - SPARQL UPDATE: insert 1 triple conditionally passing" {
             testApplication {
                 val createdBase = resourceCreator()

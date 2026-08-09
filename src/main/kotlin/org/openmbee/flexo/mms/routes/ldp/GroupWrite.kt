@@ -134,6 +134,10 @@ suspend fun <TResponseContext: LdpMutateResponse> LdpDcLayer1Context<TResponseCo
             }
         }
         where {
+            // when replacing, bind the existing group's properties so the delete clause removes them
+            if(replaceExisting) {
+                existingGroup()
+            }
             // assert the required conditions (e.g., access-control, existence, etc.)
             raw(*localConditions.requiredPatterns())
         }

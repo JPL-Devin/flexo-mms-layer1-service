@@ -26,6 +26,27 @@ class GroupLdpDc : GroupAny() {
                 }
             }
         }
+
+        "PUT group - replace existing group replaces all properties" {
+            testApplication {
+                createGroup(demoGroupId, demoGroupTitle)
+
+                val updatedGroupTitle = "Updated $demoGroupTitle"
+
+                httpPut(demoGroupPath) {
+                    setTurtleBody(withAllTestPrefixes("""
+                        <> dct:title "$updatedGroupTitle"@en .
+                    """.trimIndent()))
+                }.apply {
+                    this shouldHaveStatus HttpStatusCode.OK
+
+                    // exclusive validation: the previous title (and its etag) must be gone
+                    this includesTriples {
+                        validateGroupTriples(this@apply, demoGroupId, updatedGroupTitle)
+                    }
+                }
+            }
+        }
     }
 }
 //
