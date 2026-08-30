@@ -10,10 +10,6 @@ jobs:
     working_directory: /home/circleci/flexo-mms-layer1-service
     steps:
       - checkout
-      - restore_cache:
-          name: Restore NPM package Cache
-          keys:
-            - npm-packages-{{ checksum "deploy/package-lock.json" }}
       - node/install-packages:
           pkg-manager: npm
           app-dir: deploy
@@ -41,13 +37,15 @@ jobs:
           name: Build stack and run tests
           shell: /bin/bash
           command: |
-            docker-compose -f src/test/resources/docker-compose.yml up -d
+            docker compose -f src/test/resources/docker-compose.yml up -d --wait
             cp src/main/resources/application.conf.test ./src/main/resources/application.conf
             docker build -t flexo-mms-test:latest -f Dockerfile-Test .
-            docker run --network=flexo-mms-test-network --name flexo-mms-test-container flexo-mms-test:latest
-            SIG_INT=$?
+            test_status=0
+            docker run --network=flexo-mms-test-network --name flexo-mms-test-container flexo-mms-test:latest || test_status=$?
             docker cp flexo-mms-test-container:/application/build /home/circleci/flexo-mms-layer1-service/build
-            exit "$SIG_INT"
+            exit "$test_status"
+      - store_test_results:
+          path: /home/circleci/flexo-mms-layer1-service/build/test-results/test
       - store_artifacts:
           path: /home/circleci/flexo-mms-layer1-service/build/reports/tests
       - persist_to_workspace:
@@ -59,9 +57,9 @@ jobs:
       name: docker/docker
     working_directory: /home/circleci/flexo-mms-layer1-service
     steps:
+      - checkout
       - attach_workspace:
           at: ~/
-      - checkout
       - run:
           name: Re-fetch all git objects for SonarCloud blame
           command: |
@@ -100,12 +98,6 @@ jobs:
             cp src/main/resources/application.conf.example ./src/main/resources/application.conf
             docker buildx build --platform linux/amd64,linux/arm64 \
               -t openmbee/flexo-mms-layer1-service:${CIRCLE_BRANCH#*/}-SNAPSHOT \
-              --push .
-      - run:
-          name: Tag and push latest
-          command: |
-            docker buildx build --platform linux/amd64,linux/arm64 \
-              -t openmbee/flexo-mms-layer1-service:latest \
               --push .
   deploy_nightly:
     executor:
@@ -163,12 +155,14 @@ jobs:
               --push .
 
 workflows:
-  version: 2
   build-test-deploy:
     jobs:
       - scan:
           requires:
             - build_and_test
+          filters:
+            tags:
+              only: /v[0-9.]+(-[\w-]+(\.[0-9]+)?)?/
           context:
             - SonarCloud
       - generate_schema:
