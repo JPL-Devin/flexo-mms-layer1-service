@@ -1,12 +1,29 @@
 version: 2.1
 orbs:
-  docker: circleci/docker@2.1.1
-  node: circleci/node@5.0.2
+  docker: circleci/docker@4.0.1
+  node: circleci/node@7.2.1
   sonarcloud: sonarsource/sonarcloud@4.0.0
+
+commands:
+  create_multiarch_builder:
+    description: Register QEMU for arm64 and create a buildx builder.
+    steps:
+      - run:
+          name: Login to Dockerhub
+          command: echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+      - run:
+          name: Create multi-arch builder
+          command: |
+            docker run --privileged --rm tonistiigi/binfmt:qemu-v9.2.2@sha256:1b804311fe87047a4c96d38b4b3ef6f62fca8cd125265917a9e3dc3c996c39e6 --install arm64
+            docker buildx create --name multiarch --use || docker buildx use multiarch
+            docker buildx inspect --bootstrap
+
 jobs:
   generate_schema:
     executor:
       name: node/default
+      tag: "22.23"
+      resource_class: medium
     working_directory: /home/circleci/flexo-mms-layer1-service
     steps:
       - checkout
@@ -24,8 +41,10 @@ jobs:
             - flexo-mms-layer1-service/*
   build_and_test:
     machine:
-      image: default
+      image: ubuntu-2404:current
     working_directory: /home/circleci/flexo-mms-layer1-service
+    environment:
+      GRADLE_HOME_HOST: /home/circleci/gradle-home
     steps:
       - attach_workspace:
           at: ~/
@@ -33,17 +52,35 @@ jobs:
           name: Cat out cluster.trig
           command: |
             cat src/test/resources/cluster.trig
+      - restore_cache:
+          keys:
+            - gradle-v1-{{ checksum "build.gradle.kts" }}-{{ checksum "gradle.properties" }}
+            - gradle-v1-
       - run:
           name: Build stack and run tests
           shell: /bin/bash
           command: |
+            mkdir -p "$GRADLE_HOME_HOST"
             docker compose -f src/test/resources/docker-compose.yml up -d --wait
             cp src/main/resources/application.conf.test ./src/main/resources/application.conf
             docker build -t flexo-mms-test:latest -f Dockerfile-Test .
             test_status=0
-            docker run --network=flexo-mms-test-network --name flexo-mms-test-container flexo-mms-test:latest || test_status=$?
+            docker run --network=flexo-mms-test-network --name flexo-mms-test-container \
+              -e GRADLE_USER_HOME=/gradle-home \
+              -v "$GRADLE_HOME_HOST":/gradle-home \
+              flexo-mms-test:latest || test_status=$?
             docker cp flexo-mms-test-container:/application/build /home/circleci/flexo-mms-layer1-service/build
             exit "$test_status"
+      - run:
+          name: Take ownership of the Gradle home written by the test container
+          when: always
+          command: sudo chown -R "$(id -u):$(id -g)" "$GRADLE_HOME_HOST"
+      - save_cache:
+          when: always
+          key: gradle-v1-{{ checksum "build.gradle.kts" }}-{{ checksum "gradle.properties" }}
+          paths:
+            - /home/circleci/gradle-home/caches/modules-2
+            - /home/circleci/gradle-home/wrapper
       - store_test_results:
           path: /home/circleci/flexo-mms-layer1-service/build/test-results/test
       - store_artifacts:
@@ -55,6 +92,8 @@ jobs:
   scan:
     executor:
       name: docker/docker
+      image: cimg/base
+      tag: "2026.08"
     working_directory: /home/circleci/flexo-mms-layer1-service
     steps:
       - checkout
@@ -63,95 +102,44 @@ jobs:
       - run:
           name: Re-fetch all git objects for SonarCloud blame
           command: |
-            # The .git directory shipped between jobs via the CircleCI workspace
-            # tarball can be missing blob objects. SonarCloud's jgit-based
-            # `git blame` walks each file's history and fails with
-            # MissingObjectException when an ancestor blob is absent. --unshallow
-            # does not help because the repo is not detected as shallow; --refetch
-            # re-downloads every object as a fresh clone would, ignoring what the
-            # local repo claims to already have.
+            # SonarCloud's jgit blame fails on blobs missing from the CircleCI
+            # checkout; --refetch re-downloads every object (needs git >= 2.38).
             git fetch --refetch
       - sonarcloud/scan
 
-  deploy_snapshot:
+  deploy_image:
+    description: Build the service image for amd64/arm64 and push it under the given tags.
+    parameters:
+      tags:
+        description: |
+          Comma-separated image tags to push, without the repository prefix.
+          Evaluated by the shell, so CircleCI env vars may be used.
+        type: string
     executor:
       name: docker/docker
+      image: cimg/base
+      tag: "2026.08"
     working_directory: /home/circleci/flexo-mms-layer1-service
+    environment:
+      IMAGE_REPO: openmbee/flexo-mms-layer1-service
     steps:
       - setup_remote_docker:
-          docker_layer_caching: true
           version: default
       - attach_workspace:
           at: ~/
-      - run:
-          name: Login to Dockerhub
-          command: echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-      - run:
-          name: Create multi-arch builder
-          command: |
-            docker run --privileged --rm tonistiigi/binfmt:qemu-v9.2.2@sha256:1b804311fe87047a4c96d38b4b3ef6f62fca8cd125265917a9e3dc3c996c39e6 --install arm64
-            docker buildx create --name multiarch --use || docker buildx use multiarch
-            docker buildx inspect --bootstrap
+      - create_multiarch_builder
       - run:
           name: Build and push multi-arch docker image
           command: |
             cp src/main/resources/application.conf.example ./src/main/resources/application.conf
+            tag_args=()
+            for tag in $(echo "<< parameters.tags >>" | tr ',' ' '); do
+              tag_args+=(-t "$IMAGE_REPO:$tag")
+            done
             docker buildx build --platform linux/amd64,linux/arm64 \
-              -t openmbee/flexo-mms-layer1-service:${CIRCLE_BRANCH#*/}-SNAPSHOT \
-              --push .
-  deploy_nightly:
-    executor:
-      name: docker/docker
-    working_directory: /home/circleci/flexo-mms-layer1-service
-    steps:
-      - setup_remote_docker:
-          docker_layer_caching: true
-          version: default
-      - attach_workspace:
-          at: ~/
-      - checkout
-      - run:
-          name: Login to Dockerhub
-          command: echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-      - run:
-          name: Create multi-arch builder
-          command: |
-            docker run --privileged --rm tonistiigi/binfmt:qemu-v9.2.2@sha256:1b804311fe87047a4c96d38b4b3ef6f62fca8cd125265917a9e3dc3c996c39e6 --install arm64
-            docker buildx create --name multiarch --use || docker buildx use multiarch
-            docker buildx inspect --bootstrap
-      - run:
-          name: Build and push multi-arch docker image
-          command: |
-            cp src/main/resources/application.conf.example ./src/main/resources/application.conf
-            docker buildx build --platform linux/amd64,linux/arm64 \
-              -t openmbee/flexo-mms-layer1-service:NIGHTLY-SNAPSHOT \
-              --push .
-  deploy_release:
-    executor:
-      name: docker/docker
-    working_directory: /home/circleci/flexo-mms-layer1-service
-    steps:
-      - setup_remote_docker:
-          docker_layer_caching: true
-          version: default
-      - attach_workspace:
-          at: ~/
-      - run:
-          name: Login to Dockerhub
-          command: echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-      - run:
-          name: Create multi-arch builder
-          command: |
-            docker run --privileged --rm tonistiigi/binfmt:qemu-v9.2.2@sha256:1b804311fe87047a4c96d38b4b3ef6f62fca8cd125265917a9e3dc3c996c39e6 --install arm64
-            docker buildx create --name multiarch --use || docker buildx use multiarch
-            docker buildx inspect --bootstrap
-      - run:
-          name: Build and push multi-arch release
-          command: |
-            cp src/main/resources/application.conf.example ./src/main/resources/application.conf
-            docker buildx build --platform linux/amd64,linux/arm64 \
-              -t openmbee/flexo-mms-layer1-service:${CIRCLE_TAG} \
-              -t openmbee/flexo-mms-layer1-service:latest \
+              "${tag_args[@]}" \
+              --cache-from "type=registry,ref=$IMAGE_REPO:buildcache" \
+              --cache-to "type=registry,ref=$IMAGE_REPO:buildcache,mode=max" \
               --push .
 
 workflows:
@@ -172,11 +160,6 @@ workflows:
           context:
             - DockerHub
       - build_and_test:
-          post-steps:
-            - persist_to_workspace:
-                root: /home/circleci/flexo-mms-layer1-service
-                paths:
-                  - build/*
           requires:
             - generate_schema
           filters:
@@ -184,7 +167,9 @@ workflows:
               only: /v[0-9.]+(-[\w-]+(\.[0-9]+)?)?/
           context:
             - DockerHub
-      - deploy_snapshot:
+      - deploy_image:
+          name: deploy_snapshot
+          tags: "${CIRCLE_BRANCH#*/}-SNAPSHOT"
           requires:
             - build_and_test
           filters:
@@ -192,7 +177,9 @@ workflows:
               only: /((release|hotfix|support)/[0-9.]+(-[\w-]+(\.[0-9]+)?)?|develop)/
           context:
             - DockerHub
-      - deploy_release:
+      - deploy_image:
+          name: deploy_release
+          tags: "${CIRCLE_TAG},latest"
           requires:
             - build_and_test
           filters:
