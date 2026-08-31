@@ -9,9 +9,15 @@ services:
     command: --mem --update /ds
     ports:
       - 3030:3030
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3030/ds/sparql?query=ASK%7B%7D"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
   minio-server:
-    image: quay.io/minio/minio
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
     hostname: minio-server
     container_name: minio-server
     env_file:
@@ -22,6 +28,12 @@ services:
     command: server /tmp/data
     ports:
       - 9000:9000
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
   store-service:
     image: openmbee/flexo-mms-store-service:v0.2.0
@@ -35,9 +47,16 @@ services:
       - AWS_ACCESS_KEY_ID=admintest
       - AWS_SECRET_ACCESS_KEY=admintest
     depends_on:
-      - minio-server
+      minio-server:
+        condition: service_healthy
     ports:
       - 8081:8080
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
 networks:
   default:
