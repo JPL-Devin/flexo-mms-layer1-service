@@ -138,8 +138,6 @@ jobs:
             done
             docker buildx build --platform linux/amd64,linux/arm64 \
               "${tag_args[@]}" \
-              --cache-from "type=registry,ref=$IMAGE_REPO:buildcache" \
-              --cache-to "type=registry,ref=$IMAGE_REPO:buildcache,mode=max" \
               --push .
 
 workflows:
